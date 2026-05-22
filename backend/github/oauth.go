@@ -10,7 +10,7 @@ import (
 	"net/url"
 	"time"
 
-	"github.com/odoo/github-pr/backend/models"
+	"my-github-pr/backend/models"
 )
 
 // Default App Client ID (User should replace with their registered GitHub App/OAuth Client ID)

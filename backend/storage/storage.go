@@ -10,7 +10,7 @@ import (
 	"sync"
 
 	"github.com/gofrs/flock"
-	"github.com/odoo/github-pr/backend/models"
+	"my-github-pr/backend/models"
 )
 
 type Service struct {

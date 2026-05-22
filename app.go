@@ -10,11 +10,11 @@ import (
 
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"github.com/odoo/github-pr/backend/git"
-	"github.com/odoo/github-pr/backend/github"
-	"github.com/odoo/github-pr/backend/models"
-	"github.com/odoo/github-pr/backend/queue"
-	"github.com/odoo/github-pr/backend/storage"
+	"my-github-pr/backend/git"
+	"my-github-pr/backend/github"
+	"my-github-pr/backend/models"
+	"my-github-pr/backend/queue"
+	"my-github-pr/backend/storage"
 )
 
 type App struct {

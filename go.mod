@@ -1,10 +1,12 @@
-module github.com/odoo/github-pr
+module my-github-pr
 
 go 1.22.0
 
 require (
 	github.com/gofrs/flock v0.8.1
+	github.com/sirupsen/logrus v1.9.4
 	github.com/wailsapp/wails/v2 v2.12.0
+	gopkg.in/natefinch/lumberjack.v2 v2.2.1
 )
 
 require (

@@ -4,9 +4,11 @@ import (
 	"encoding/json"
 	"fmt"
 	"net/http"
+	"net/url"
 	"time"
 
-	"github.com/odoo/github-pr/backend/models"
+	"my-github-pr/backend/models"
+	"my-github-pr/logger"
 )
 
 type Client struct {
@@ -38,10 +40,22 @@ func (c *Client) sendRequest(req *http.Request, val interface{}) error {
 
 	return json.NewDecoder(resp.Body).Decode(val)
 }
-
 func (c *Client) FetchPRs(owner, repo, username string) ([]models.PullRequest, error) {
-	// Request only open and recently updated pull requests to start
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls?state=open&per_page=50", owner, repo)
+	logger.Info("Fetching PRs for %s %s, username %s", owner, repo, username)
+
+	// Use GitHub search API so we fetch ONLY user's PRs
+	query := fmt.Sprintf(
+		"repo:%s/%s is:pr author:%s state:open",
+		owner,
+		repo,
+		username,
+	)
+
+	url := fmt.Sprintf(
+		"https://api.github.com/search/issues?q=%s&per_page=50",
+		url.QueryEscape(query),
+	)
+
 	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
@@ -51,34 +65,30 @@ func (c *Client) FetchPRs(owner, repo, username string) ([]models.PullRequest, e
 		Number int    `json:"number"`
 		Title  string `json:"title"`
 		State  string `json:"state"`
-		Draft  bool   `json:"draft"`
 		HTMLURL string `json:"html_url"`
 		Body   string `json:"body"`
-		User   struct {
+		UpdatedAt string `json:"updated_at"`
+		User struct {
 			Login string `json:"login"`
 		} `json:"user"`
-		Base struct {
-			Ref string `json:"ref"`
-		} `json:"base"`
-		Head struct {
-			Ref string `json:"ref"`
-			Label string `json:"label"` // e.g. "owner:branch"
-		} `json:"head"`
-		UpdatedAt string `json:"updated_at"`
+		PullRequest struct {
+			URL string `json:"url"`
+		} `json:"pull_request"`
 	}
 
-	var ghPRs []GHPR
-	if err := c.sendRequest(req, &ghPRs); err != nil {
+	type SearchResponse struct {
+		Items []GHPR `json:"items"`
+	}
+
+	var result SearchResponse
+
+	if err := c.sendRequest(req, &result); err != nil {
 		return nil, err
 	}
 
 	var prList []models.PullRequest
-	for _, pr := range ghPRs {
-		// Filter by logged-in author
-		if username != "" && pr.User.Login != username {
-			continue
-		}
 
+	for _, pr := range result.Items {
 		updatedTime, _ := time.Parse(time.RFC3339, pr.UpdatedAt)
 
 		mapped := models.PullRequest{
@@ -87,17 +97,19 @@ func (c *Client) FetchPRs(owner, repo, username string) ([]models.PullRequest, e
 			Title:           pr.Title,
 			RepoID:          fmt.Sprintf("%s-%s", owner, repo),
 			RepoName:        fmt.Sprintf("%s/%s", owner, repo),
-			BaseBranch:      pr.Base.Ref,
-			HeadBranch:      pr.Head.Ref,
 			State:           pr.State,
-			IsDraft:         pr.Draft,
 			HTMLURL:         pr.HTMLURL,
 			UpdatedAt:       updatedTime,
 			Description:     pr.Body,
 			MergeableStatus: "unknown",
 		}
 
-		// Hydrate details (behind/ahead status, mergeability) in background or sequentially
+		// hydratePRDetails will still populate:
+		// - base branch
+		// - head branch
+		// - draft
+		// - behind/ahead
+		// - mergeability
 		_ = c.hydratePRDetails(owner, repo, &mapped)
 
 		prList = append(prList, mapped)

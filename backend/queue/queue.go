@@ -6,8 +6,8 @@ import (
 	"sync"
 	"time"
 
-	"github.com/odoo/github-pr/backend/git"
-	"github.com/odoo/github-pr/backend/models"
+	"my-github-pr/backend/git"
+	"my-github-pr/backend/models"
 )
 
 type LogFunc func(message string)
