@@ -1,0 +1,44 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+@layer base {
+  body {
+    @apply bg-[#0d1117] text-gray-100 font-sans overflow-hidden select-none;
+    margin: 0;
+    padding: 0;
+    height: 100vh;
+  }
+
+  /* Custom Scrollbar for Git Client Aesthetics */
+  ::-webkit-scrollbar {
+    width: 6px;
+    height: 6px;
+  }
+  
+  ::-webkit-scrollbar-track {
+    @apply bg-transparent;
+  }
+  
+  ::-webkit-scrollbar-thumb {
+    @apply bg-zinc-800 rounded;
+  }
+  
+  ::-webkit-scrollbar-thumb:hover {
+    @apply bg-zinc-700;
+  }
+}
+
+/* Custom terminal background adjustment */
+.xterm-viewport {
+  background-color: #0b0e14 !important;
+}
+
+/* Button & Card Micro-animations */
+.action-btn {
+  @apply transition-all duration-200 ease-in-out transform active:scale-95;
+}
+
+.pane-container {
+  @apply bg-[#161b22] border-zinc-800 border flex flex-col overflow-hidden rounded-lg;
+}
