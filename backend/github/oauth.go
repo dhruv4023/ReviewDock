@@ -1,176 +1,89 @@
 package github
 
 import (
-	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"net/url"
-	"time"
+	"os/exec"
+	"strings"
 
 	"my-github-pr/backend/models"
 )
 
-// Default App Client ID (User should replace with their registered GitHub App/OAuth Client ID)
-const DefaultClientID = "Ov23li2HarsMBh78y8nb"
-
-type DeviceCodeResponse struct {
-	DeviceCode      string `json:"device_code"`
-	UserCode        string `json:"user_code"`
-	VerificationURI string `json:"verification_uri"`
-	ExpiresIn       int    `json:"expires_in"`
-	Interval        int    `json:"interval"`
-}
-
-type TokenResponse struct {
-	AccessToken string `json:"access_token"`
-	TokenType   string `json:"token_type"`
-	Scope       string `json:"scope"`
-	Error       string `json:"error"`
-}
-
-type AuthHandler struct {
-	clientID string
-	client   *http.Client
-}
-
-func NewAuthHandler(clientID string) *AuthHandler {
-	if clientID == "" {
-		clientID = DefaultClientID
+// GetSession returns the current GitHub session from gh CLI auth state.
+// Returns nil, nil when no user is authenticated (not an error).
+func GetSession(ctx context.Context) (*models.Session, error) {
+	// Check authentication status via exit code
+	statusCmd := exec.CommandContext(ctx, "gh", "auth", "status")
+	if err := statusCmd.Run(); err != nil {
+		// Non-zero exit = not logged in
+		return nil, nil
 	}
-	return &AuthHandler{
-		clientID: clientID,
-		client:   &http.Client{Timeout: 10 * time.Second},
+
+	// Retrieve the active token
+	tokenOut, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
+	if err != nil {
+		return nil, fmt.Errorf("gh auth token: %w", err)
 	}
+	token := strings.TrimSpace(string(tokenOut))
+
+	// Fetch user profile
+	user, err := fetchCurrentUser(ctx)
+	if err != nil {
+		return nil, err
+	}
+
+	return &models.Session{
+		AccessToken: token,
+		TokenType:   "bearer",
+		Scope:       "repo,read:org",
+		User:        user,
+	}, nil
 }
 
-// RequestDeviceCode initiates OAuth Device Authorization Flow
-func (h *AuthHandler) RequestDeviceCode() (*DeviceCodeResponse, error) {
-	data := url.Values{}
-	data.Set("client_id", h.clientID)
-	data.Set("scope", "repo read:org")
-
-	req, err := http.NewRequest(
-		"POST",
-		"https://github.com/login/device/code",
-		bytes.NewBufferString(data.Encode()),
+// Login initiates the GitHub authentication flow via gh auth login.
+// It opens the system browser automatically for OAuth.
+func Login(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "gh", "auth", "login",
+		"--hostname", "github.com",
+		"--git-protocol", "https",
+		"--web",
 	)
-	if err != nil {
-		return nil, err
+	if out, err := cmd.CombinedOutput(); err != nil {
+		return fmt.Errorf("gh auth login: %s", strings.TrimSpace(string(out)))
 	}
-
-	req.Header.Set("Accept", "application/json")
-	req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	body, _ := io.ReadAll(resp.Body)
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf(
-			"device code request failed: status=%d body=%s",
-			resp.StatusCode,
-			string(body),
-		)
-	}
-
-	var result DeviceCodeResponse
-
-	if err := json.Unmarshal(body, &result); err != nil {
-		return nil, err
-	}
-
-	return &result, nil
+	return nil
 }
 
-// PollForToken blocks and polls GitHub until the user authorizes the app or verification expires
-func (h *AuthHandler) PollForToken(ctx context.Context, deviceCode string, interval int) (string, error) {
-	ticker := time.NewTicker(time.Duration(interval) * time.Second)
-	defer ticker.Stop()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return "", ctx.Err()
-		case <-ticker.C:
-			data := url.Values{}
-			data.Set("client_id", h.clientID)
-			data.Set("device_code", deviceCode)
-			data.Set("grant_type", "urn:ietf:params:oauth:grant-type:device_code")
-
-			req, err := http.NewRequestWithContext(ctx, "POST", "https://github.com/login/oauth/access_token", bytes.NewBufferString(data.Encode()))
-			if err != nil {
-				return "", err
-			}
-			req.Header.Set("Accept", "application/json")
-			req.Header.Set("Content-Type", "application/x-www-form-urlencoded")
-
-			resp, err := h.client.Do(req)
-			if err != nil {
-				return "", err
-			}
-
-			var tokenResp TokenResponse
-			err = json.NewDecoder(resp.Body).Decode(&tokenResp)
-			resp.Body.Close()
-			if err != nil {
-				return "", err
-			}
-
-			if tokenResp.Error != "" {
-				switch tokenResp.Error {
-				case "authorization_pending":
-					// User has not finished entering code yet, continue polling
-					continue
-				case "slow_down":
-					// Backoff: increase polling interval
-					ticker.Reset(time.Duration(interval+5) * time.Second)
-					continue
-				case "expired_token":
-					return "", fmt.Errorf("authorization code expired, please request login again")
-				case "access_denied":
-					return "", fmt.Errorf("user denied authorization request")
-				default:
-					return "", fmt.Errorf("oauth error: %s", tokenResp.Error)
-				}
-			}
-
-			if tokenResp.AccessToken != "" {
-				return tokenResp.AccessToken, nil
-			}
+// Logout revokes the active GitHub session via gh auth logout.
+func Logout(ctx context.Context) error {
+	cmd := exec.CommandContext(ctx, "gh", "auth", "logout",
+		"--hostname", "github.com",
+	)
+	if out, err := cmd.CombinedOutput(); err != nil {
+		msg := strings.TrimSpace(string(out))
+		// Treat "not logged in" as a no-op, not an error
+		if strings.Contains(msg, "not logged in") {
+			return nil
 		}
+		return fmt.Errorf("gh auth logout: %s", msg)
 	}
+	return nil
 }
 
-// FetchUserProfile obtains Github user profile metadata
-func (h *AuthHandler) FetchUserProfile(accessToken string) (*models.User, error) {
-	req, err := http.NewRequest("GET", "https://api.github.com/user", nil)
+// fetchCurrentUser retrieves the authenticated user profile using gh api.
+func fetchCurrentUser(ctx context.Context) (*models.User, error) {
+	out, err := exec.CommandContext(ctx, "gh", "api", "user").Output()
 	if err != nil {
-		return nil, err
-	}
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", accessToken))
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-
-	resp, err := h.client.Do(req)
-	if err != nil {
-		return nil, err
-	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return nil, fmt.Errorf("failed to fetch profile, status: %d", resp.StatusCode)
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("gh api user: %s", strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return nil, fmt.Errorf("gh api user: %w", err)
 	}
 
 	var user models.User
-	if err := json.NewDecoder(resp.Body).Decode(&user); err != nil {
-		return nil, err
+	if err := json.Unmarshal(out, &user); err != nil {
+		return nil, fmt.Errorf("parsing user profile: %w", err)
 	}
-
 	return &user, nil
 }

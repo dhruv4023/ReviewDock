@@ -1,10 +1,10 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useState } from 'react';
 import { useAppStore } from './stores/appStore';
 import { Sidebar } from './components/Sidebar';
 import { PRTable } from './components/PRTable';
 import { DetailsPanel } from './components/DetailsPanel';
 import { TerminalPanel } from './components/TerminalPanel';
-import { Github, LogOut, AlertTriangle, ExternalLink, Copy } from 'lucide-react';
+import { Github, LogOut, AlertTriangle, RefreshCw } from 'lucide-react';
 
 export const App: React.FC = () => {
   const {
@@ -12,22 +12,25 @@ export const App: React.FC = () => {
     init,
     login,
     logout,
-    oauthPrompt,
     oauthError
   } = useAppStore();
+
+  const [isLoggingIn, setIsLoggingIn] = useState(false);
+
+  const handleLogin = async () => {
+    setIsLoggingIn(true);
+    await login();
+    // isLoggingIn stays true until oauth:success or oauth:error clears it
+  };
+
+  useEffect(() => {
+    if (oauthError) setIsLoggingIn(false);
+  }, [oauthError]);
 
   useEffect(() => {
     init();
   }, []);
 
-  const copyVerificationUrl = async () => {
-    try {
-      await navigator.clipboard.writeText(oauthPrompt?.verificationUri || "");
-      console.log("Verification URL copied");
-    } catch (err) {
-      console.error("Failed to copy URL", err);
-    }
-  };
 
   // Show a premium dark login portal if user is not authenticated
   if (!session) {
@@ -47,53 +50,30 @@ export const App: React.FC = () => {
             Maintain pull requests across multiple repositories concurrently.
           </p>
 
-          {oauthPrompt ? (
-            <div className="w-full space-y-4">
-              <div className="bg-[#0b0e14] border border-zinc-800 rounded p-4 text-center">
-                <span className="text-[10px] uppercase text-zinc-500 tracking-wider font-semibold block mb-1">
-                  Device Authorization Code
-                </span>
-                <span className="text-2xl font-mono tracking-widest font-bold text-blue-400 select-all">
-                  {oauthPrompt.userCode}
-                </span>
-              </div>
-              <p className="text-xs text-gray-400 text-center leading-normal">
-                Open the link below and paste the code above to authorize this desktop app.
+          {isLoggingIn ? (
+            <div className="w-full flex flex-col items-center gap-3 py-2">
+              <RefreshCw size={20} className="animate-spin text-blue-400" />
+              <p className="text-xs text-gray-400 text-center">
+                A browser window has opened. Complete authorization on GitHub, then return here.
               </p>
-              <a
-                href={oauthPrompt.verificationUri}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="w-full py-2 bg-blue-600 hover:bg-blue-500 text-white rounded font-semibold text-xs transition flex items-center justify-center gap-1.5 action-btn"
-              >
-                Open Verification Link <ExternalLink size={13} />
-              </a>
-              <button
-                type="button"
-                onClick={copyVerificationUrl}
-                className="px-3 py-2 bg-gray-700 hover:bg-gray-600 text-white rounded font-semibold text-xs transition flex items-center justify-center gap-1.5"
-              >
-                <Copy size={13} />
-                Copy URL
-              </button>
-              <div className="text-[10px] text-gray-500 text-center italic animate-pulse mt-2">
-                Waiting for authorization from GitHub...
-              </div>
             </div>
           ) : (
             <div className="w-full space-y-3">
               {oauthError && (
-                <div className="p-2.5 bg-red-950/20 border border-red-850 rounded flex items-start gap-2 text-red-400 text-[11px] leading-snug">
+                <div className="p-2.5 bg-red-950/20 border border-red-800 rounded flex items-start gap-2 text-red-400 text-[11px] leading-snug">
                   <AlertTriangle size={14} className="shrink-0 mt-0.5" />
                   <span>{oauthError}</span>
                 </div>
               )}
               <button
-                onClick={login}
+                onClick={handleLogin}
                 className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold text-xs transition flex items-center justify-center gap-2 action-btn shadow-lg shadow-blue-900/20"
               >
-                <Github size={16} /> Sign in with GitHub OAuth
+                <Github size={16} /> Sign in with GitHub
               </button>
+              <p className="text-[10px] text-gray-600 text-center">
+                Opens browser via <code className="text-gray-500">gh auth login</code>
+              </p>
             </div>
           )}
         </div>

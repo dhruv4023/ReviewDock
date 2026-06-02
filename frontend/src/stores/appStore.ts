@@ -87,11 +87,6 @@ export interface RebaseRequest {
   base_branch: string;
 }
 
-interface OAuthPrompt {
-  userCode: string;
-  verificationUri: string;
-}
-
 interface AppState {
   repos: Repository[];
   prs: PullRequest[];
@@ -101,7 +96,6 @@ interface AppState {
   selectedPRIds: string[];
   isLoadingRepos: boolean;
   isLoadingPRs: boolean;
-  oauthPrompt: OAuthPrompt | null;
   oauthError: string | null;
   
   // Actions
@@ -130,7 +124,6 @@ export const useAppStore = create<AppState>((set, get) => ({
   selectedPRIds: [],
   isLoadingRepos: false,
   isLoadingPRs: false,
-  oauthPrompt: null,
   oauthError: null,
 
   init: async () => {
@@ -145,18 +138,14 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Hook up OAuth Wails runtime events
-      window.runtime.EventsOn('oauth:request', (data: { user_code: string; verification_uri: string }) => {
-        set({ oauthPrompt: { userCode: data.user_code, verificationUri: data.verification_uri }, oauthError: null });
-      });
-
       window.runtime.EventsOn('oauth:success', (session: Session) => {
-        set({ session, oauthPrompt: null, oauthError: null });
+        set({ session, oauthError: null });
         get().fetchRepos();
         get().fetchPRs();
       });
 
       window.runtime.EventsOn('oauth:error', (errorMsg: string) => {
-        set({ oauthError: errorMsg, oauthPrompt: null });
+        set({ oauthError: errorMsg });
       });
 
     } catch (err) {
@@ -208,7 +197,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   login: async () => {
     try {
-      set({ oauthError: null, oauthPrompt: null });
+      set({ oauthError: null });
       await window.go.main.App.LoginGitHub();
     } catch (err) {
       set({ oauthError: String(err) });

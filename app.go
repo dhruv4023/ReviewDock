@@ -22,13 +22,13 @@ type App struct {
 	storage      *storage.Service
 	gitExecutor  *git.Executor
 	queueManager *queue.Manager
-	authHandler  *github.AuthHandler
+	ghClient     *github.Client
 }
 
 func NewApp() *App {
 	return &App{
 		gitExecutor: git.NewExecutor(),
-		authHandler: github.NewAuthHandler(""), // Empty uses DefaultClientID
+		ghClient:    github.NewClient(),
 	}
 }
 
@@ -64,7 +64,7 @@ func (a *App) startup(ctx context.Context) {
 	}
 }
 
-func (a *App) shutdown() {
+func (a *App) shutdown(ctx context.Context) {
 	if a.queueManager != nil {
 		a.queueManager.Stop()
 	}
@@ -153,52 +153,27 @@ func (a *App) SaveSettings(settings *models.Settings) error {
 	return a.storage.WriteSettings(settings)
 }
 
-// GetSession checks if user is logged in
+// GetSession checks if a user is authenticated via gh CLI
 func (a *App) GetSession() (*models.Session, error) {
-	return a.storage.ReadSession()
+	return github.GetSession(a.ctx)
 }
 
-// Logout deletes OAuth session
+// Logout revokes the active gh CLI session
 func (a *App) Logout() error {
-	return a.storage.WriteSession(nil)
+	return github.Logout(a.ctx)
 }
 
-// LoginGitHub starts GitHub OAuth device flow
+// LoginGitHub initiates the GitHub OAuth flow via gh auth login
 func (a *App) LoginGitHub() error {
-	codeResp, err := a.authHandler.RequestDeviceCode()
-	if err != nil {
-		return fmt.Errorf("failed requesting device authorization: %w", err)
-	}
-
-	// Send user instructions to React front
-	wails.EventsEmit(a.ctx, "oauth:request", map[string]interface{}{
-		"user_code":        codeResp.UserCode,
-		"verification_uri": codeResp.VerificationURI,
-	})
-
-	// Start polling token in background goroutine
 	go func() {
-		token, err := a.authHandler.PollForToken(context.Background(), codeResp.DeviceCode, codeResp.Interval)
-		if err != nil {
+		if err := github.Login(context.Background()); err != nil {
 			wails.EventsEmit(a.ctx, "oauth:error", err.Error())
 			return
 		}
 
-		userProfile, err := a.authHandler.FetchUserProfile(token)
-		if err != nil {
-			wails.EventsEmit(a.ctx, "oauth:error", fmt.Sprintf("failed loading user profile: %v", err))
-			return
-		}
-
-		session := &models.Session{
-			AccessToken: token,
-			TokenType:   "bearer",
-			Scope:       "repo,read:org",
-			User:        userProfile,
-		}
-
-		if err := a.storage.WriteSession(session); err != nil {
-			wails.EventsEmit(a.ctx, "oauth:error", fmt.Sprintf("failed storing session: %v", err))
+		session, err := github.GetSession(a.ctx)
+		if err != nil || session == nil {
+			wails.EventsEmit(a.ctx, "oauth:error", "Login succeeded but could not load profile")
 			return
 		}
 
@@ -210,9 +185,10 @@ func (a *App) LoginGitHub() error {
 
 // GetPullRequests aggregates active PRs for all repositories
 func (a *App) GetPullRequests() ([]models.PullRequest, error) {
-	session, err := a.storage.ReadSession()
+	// Verify gh is authenticated before making any calls
+	session, err := github.GetSession(a.ctx)
 	if err != nil || session == nil {
-		return nil, fmt.Errorf("unauthorized: login required")
+		return nil, fmt.Errorf("unauthorized: please run 'gh auth login' first")
 	}
 
 	repos, err := a.storage.ReadRepos()
@@ -220,10 +196,7 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 		return nil, err
 	}
 
-	client := github.NewClient(session.AccessToken)
 	var allPRs []models.PullRequest
-
-	// Fetch concurrently to load fast
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errsChan := make(chan error, len(repos))
@@ -232,12 +205,11 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 		wg.Add(1)
 		go func(r models.Repository) {
 			defer wg.Done()
-			prs, err := client.FetchPRs(r.Owner, r.Name, session.User.Login)
+			prs, err := a.ghClient.FetchPRs(a.ctx, r.Owner, r.Name)
 			if err != nil {
 				errsChan <- fmt.Errorf("failed fetching for %s/%s: %w", r.Owner, r.Name, err)
 				return
 			}
-
 			mu.Lock()
 			allPRs = append(allPRs, prs...)
 			mu.Unlock()
@@ -247,7 +219,6 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 	wg.Wait()
 	close(errsChan)
 
-	// Collect any errors for logging, but don't fail entire request
 	for e := range errsChan {
 		wails.LogErrorf(a.ctx, "%v", e)
 	}
@@ -255,13 +226,8 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 	return allPRs, nil
 }
 
-// GetPRCIStatus fetches status checks for a PR commit
+// GetPRCIStatus fetches status checks for a PR commit ref
 func (a *App) GetPRCIStatus(repoID string, headRef string) (string, error) {
-	session, err := a.storage.ReadSession()
-	if err != nil || session == nil {
-		return "unknown", fmt.Errorf("unauthorized")
-	}
-
 	repos, err := a.storage.ReadRepos()
 	if err != nil {
 		return "unknown", err
@@ -278,8 +244,7 @@ func (a *App) GetPRCIStatus(repoID string, headRef string) (string, error) {
 		return "unknown", fmt.Errorf("repository not found")
 	}
 
-	client := github.NewClient(session.AccessToken)
-	return client.FetchCombinedCIStatus(targetRepo.Owner, targetRepo.Name, headRef)
+	return a.ghClient.FetchCombinedCIStatus(a.ctx, targetRepo.Owner, targetRepo.Name, headRef)
 }
 
 // RebasePRs submits selected PRs for rebase jobs

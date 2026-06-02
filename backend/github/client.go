@@ -1,167 +1,138 @@
 package github
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
-	"net/http"
-	"net/url"
+	"os/exec"
+	"strings"
 	"time"
 
 	"my-github-pr/backend/models"
 	"my-github-pr/logger"
 )
 
-type Client struct {
-	token  string
-	client *http.Client
+// Client wraps the gh CLI for all GitHub data interactions.
+// Authentication is managed entirely by the gh CLI (gh auth login).
+type Client struct{}
+
+func NewClient() *Client {
+	return &Client{}
 }
 
-func NewClient(token string) *Client {
-	return &Client{
-		token:  token,
-		client: &http.Client{Timeout: 15 * time.Second},
-	}
-}
-
-func (c *Client) sendRequest(req *http.Request, val interface{}) error {
-	req.Header.Set("Authorization", fmt.Sprintf("Bearer %s", c.token))
-	req.Header.Set("Accept", "application/vnd.github.v3+json")
-	req.Header.Set("User-Agent", "Wails-PR-Rebase-Manager")
-
-	resp, err := c.client.Do(req)
+// run executes a gh CLI subcommand and returns its stdout.
+func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
+	cmd := exec.CommandContext(ctx, "gh", args...)
+	out, err := cmd.Output()
 	if err != nil {
-		return err
+		if exitErr, ok := err.(*exec.ExitError); ok {
+			return nil, fmt.Errorf("gh %s: %s", strings.Join(args, " "), strings.TrimSpace(string(exitErr.Stderr)))
+		}
+		return nil, fmt.Errorf("gh %s: %w", strings.Join(args, " "), err)
 	}
-	defer resp.Body.Close()
-
-	if resp.StatusCode != http.StatusOK {
-		return fmt.Errorf("github api returned status code %d", resp.StatusCode)
-	}
-
-	return json.NewDecoder(resp.Body).Decode(val)
+	return out, nil
 }
-func (c *Client) FetchPRs(owner, repo, username string) ([]models.PullRequest, error) {
-	logger.Info("Fetching PRs for %s %s, username %s", owner, repo, username)
 
-	// Use GitHub search API so we fetch ONLY user's PRs
-	query := fmt.Sprintf(
-		"repo:%s/%s is:pr author:%s state:open",
-		owner,
-		repo,
-		username,
+// FetchPRs retrieves open pull requests authored by the authenticated user for a repo.
+func (c *Client) FetchPRs(ctx context.Context, owner, repo string) ([]models.PullRequest, error) {
+	logger.Infof("Fetching PRs for %s/%s via gh CLI", owner, repo)
+
+	const fields = "number,title,state,url,updatedAt,body,headRefName,baseRefName,isDraft,mergeable,headRepositoryOwner,headRepository"
+
+	out, err := c.run(ctx, "pr", "list",
+		"--repo", fmt.Sprintf("%s/%s", owner, repo),
+		"--author", "@me",
+		"--state", "open",
+		"--limit", "50",
+		"--json", fields,
 	)
-
-	url := fmt.Sprintf(
-		"https://api.github.com/search/issues?q=%s&per_page=50",
-		url.QueryEscape(query),
-	)
-
-	req, err := http.NewRequest("GET", url, nil)
 	if err != nil {
 		return nil, err
 	}
 
-	type GHPR struct {
-		Number int    `json:"number"`
-		Title  string `json:"title"`
-		State  string `json:"state"`
-		HTMLURL string `json:"html_url"`
-		Body   string `json:"body"`
-		UpdatedAt string `json:"updated_at"`
-		User struct {
+	type ghPR struct {
+		Number      int    `json:"number"`
+		Title       string `json:"title"`
+		State       string `json:"state"`
+		URL         string `json:"url"`
+		UpdatedAt   string `json:"updatedAt"`
+		Body        string `json:"body"`
+		HeadRefName string `json:"headRefName"`
+		BaseRefName string `json:"baseRefName"`
+		IsDraft     bool   `json:"isDraft"`
+		Mergeable   string `json:"mergeable"`
+		HeadRepositoryOwner struct {
 			Login string `json:"login"`
-		} `json:"user"`
-		PullRequest struct {
-			URL string `json:"url"`
-		} `json:"pull_request"`
+		} `json:"headRepositoryOwner"`
+		HeadRepository struct {
+			Name string `json:"name"`
+		} `json:"headRepository"`
 	}
 
-	type SearchResponse struct {
-		Items []GHPR `json:"items"`
+	var items []ghPR
+	if err := json.Unmarshal(out, &items); err != nil {
+		return nil, fmt.Errorf("parsing gh pr list output: %w", err)
 	}
 
-	var result SearchResponse
+	repoID := fmt.Sprintf("%s-%s", owner, repo)
+	repoName := fmt.Sprintf("%s/%s", owner, repo)
 
-	if err := c.sendRequest(req, &result); err != nil {
-		return nil, err
-	}
+	var result []models.PullRequest
+	for _, item := range items {
+		updatedAt, _ := time.Parse(time.RFC3339, item.UpdatedAt)
 
-	var prList []models.PullRequest
+		// Build head/base labels (owner:branch format for cross-repo fork PRs)
+		headOwner := item.HeadRepositoryOwner.Login
+		headRepo := item.HeadRepository.Name
+		headLabel := item.HeadRefName
+		if headOwner != "" && (headOwner != owner || headRepo != repo) {
+			headLabel = fmt.Sprintf("%s:%s", headOwner, item.HeadRefName)
+		}
+		baseLabel := fmt.Sprintf("%s:%s", owner, item.BaseRefName)
 
-	for _, pr := range result.Items {
-		updatedTime, _ := time.Parse(time.RFC3339, pr.UpdatedAt)
-
-		mapped := models.PullRequest{
-			ID:              fmt.Sprintf("%s-%s-%d", owner, repo, pr.Number),
-			Number:          pr.Number,
-			Title:           pr.Title,
-			RepoID:          fmt.Sprintf("%s-%s", owner, repo),
-			RepoName:        fmt.Sprintf("%s/%s", owner, repo),
-			State:           pr.State,
-			HTMLURL:         pr.HTMLURL,
-			UpdatedAt:       updatedTime,
-			Description:     pr.Body,
-			MergeableStatus: "unknown",
+		state := strings.ToLower(item.State)
+		if item.IsDraft {
+			state = "draft"
 		}
 
-		// hydratePRDetails will still populate:
-		// - base branch
-		// - head branch
-		// - draft
-		// - behind/ahead
-		// - mergeability
-		_ = c.hydratePRDetails(owner, repo, &mapped)
+		mergeableStatus := "unknown"
+		switch strings.ToUpper(item.Mergeable) {
+		case "MERGEABLE":
+			mergeableStatus = "mergeable"
+		case "CONFLICTING":
+			mergeableStatus = "conflicting"
+		}
 
-		prList = append(prList, mapped)
+		pr := models.PullRequest{
+			ID:              fmt.Sprintf("%s-%d", repoID, item.Number),
+			Number:          item.Number,
+			Title:           item.Title,
+			RepoID:          repoID,
+			RepoName:        repoName,
+			BaseBranch:      item.BaseRefName,
+			HeadBranch:      item.HeadRefName,
+			BaseLabel:       baseLabel,
+			HeadLabel:       headLabel,
+			State:           state,
+			IsDraft:         item.IsDraft,
+			UpdatedAt:       updatedAt,
+			MergeableStatus: mergeableStatus,
+			HTMLURL:         item.URL,
+			Description:     item.Body,
+		}
+
+		// Enrich with ahead/behind counts via gh api (no direct gh command for compare)
+		_ = c.fetchCompareCounts(ctx, owner, repo, &pr)
+
+		result = append(result, pr)
 	}
 
-	return prList, nil
+	return result, nil
 }
 
-func (c *Client) hydratePRDetails(owner, repo string, pr *models.PullRequest) error {
-	// 1. Fetch detailed PR info (gives mergeable status)
-	urlDetail := fmt.Sprintf("https://api.github.com/repos/%s/%s/pulls/%d", owner, repo, pr.Number)
-	reqDetail, err := http.NewRequest("GET", urlDetail, nil)
-	if err != nil {
-		return err
-	}
-
-	var detail struct {
-		Mergeable *bool  `json:"mergeable"`
-		MState    string `json:"mergeable_state"`
-		Draft     bool   `json:"draft"`
-		Head      struct {
-			Label string `json:"label"`
-			Ref   string `json:"ref"`
-		} `json:"head"`
-		Base      struct {
-			Label string `json:"label"`
-			Ref   string `json:"ref"`
-		} `json:"base"`
-	}
-
-	if err := c.sendRequest(reqDetail, &detail); err == nil {
-		pr.IsDraft = detail.Draft
-		pr.HeadBranch = detail.Head.Ref
-		pr.BaseBranch = detail.Base.Ref
-		pr.HeadLabel = detail.Head.Label
-		pr.BaseLabel = detail.Base.Label
-		
-		if detail.Draft {
-			pr.State = "draft"
-		}
-
-		if detail.Mergeable == nil {
-			pr.MergeableStatus = "unknown"
-		} else if *detail.Mergeable {
-			pr.MergeableStatus = "mergeable"
-		} else {
-			pr.MergeableStatus = "conflicting"
-		}
-	}
-
-	// 2. Query comparison to find ahead/behind counts
-	// Use Labels for compare to support cross-repository (fork) PRs
+// fetchCompareCounts populates AheadCount and BehindCount.
+// Uses `gh api` because no top-level gh command exists for branch comparison.
+func (c *Client) fetchCompareCounts(ctx context.Context, owner, repo string, pr *models.PullRequest) error {
 	compareBase := pr.BaseLabel
 	if compareBase == "" {
 		compareBase = pr.BaseBranch
@@ -170,29 +141,30 @@ func (c *Client) hydratePRDetails(owner, repo string, pr *models.PullRequest) er
 	if compareHead == "" {
 		compareHead = pr.HeadBranch
 	}
-	urlCompare := fmt.Sprintf("https://api.github.com/repos/%s/%s/compare/%s...%s", owner, repo, compareBase, compareHead)
-	reqCompare, err := http.NewRequest("GET", urlCompare, nil)
+
+	out, err := c.run(ctx, "api",
+		fmt.Sprintf("repos/%s/%s/compare/%s...%s", owner, repo, compareBase, compareHead),
+		"--jq", "[.ahead_by, .behind_by] | @json",
+	)
 	if err != nil {
 		return err
 	}
 
-	var compare struct {
-		AheadBy  int `json:"ahead_by"`
-		BehindBy int `json:"behind_by"`
+	var counts [2]int
+	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &counts); err != nil {
+		return err
 	}
-
-	if err := c.sendRequest(reqCompare, &compare); err == nil {
-		pr.AheadCount = compare.AheadBy
-		pr.BehindCount = compare.BehindBy
-	}
-
+	pr.AheadCount = counts[0]
+	pr.BehindCount = counts[1]
 	return nil
 }
 
-// FetchCombinedCIStatus retrieves statuses for the head commit of a PR
-func (c *Client) FetchCombinedCIStatus(owner, repo, ref string) (string, error) {
-	url := fmt.Sprintf("https://api.github.com/repos/%s/%s/commits/%s/check-runs", owner, repo, ref)
-	req, err := http.NewRequest("GET", url, nil)
+// FetchCombinedCIStatus returns an aggregated CI result for the given head ref.
+// Uses `gh api` because no gh command surfaces check-runs by arbitrary ref.
+func (c *Client) FetchCombinedCIStatus(ctx context.Context, owner, repo, ref string) (string, error) {
+	out, err := c.run(ctx, "api",
+		fmt.Sprintf("repos/%s/%s/commits/%s/check-runs", owner, repo, ref),
+	)
 	if err != nil {
 		return "unknown", err
 	}
@@ -204,8 +176,7 @@ func (c *Client) FetchCombinedCIStatus(owner, repo, ref string) (string, error) 
 			Conclusion *string `json:"conclusion"`
 		} `json:"check_runs"`
 	}
-
-	if err := c.sendRequest(req, &result); err != nil {
+	if err := json.Unmarshal(out, &result); err != nil {
 		return "unknown", err
 	}
 
@@ -213,17 +184,13 @@ func (c *Client) FetchCombinedCIStatus(owner, repo, ref string) (string, error) 
 		return "none", nil
 	}
 
-	successCount := 0
-	failureCount := 0
-	runningCount := 0
-
+	failureCount, runningCount := 0, 0
 	for _, run := range result.CheckRuns {
 		if run.Status != "completed" {
 			runningCount++
 		} else if run.Conclusion != nil {
-			if *run.Conclusion == "success" {
-				successCount++
-			} else if *run.Conclusion == "failure" || *run.Conclusion == "action_required" {
+			switch *run.Conclusion {
+			case "failure", "action_required":
 				failureCount++
 			}
 		}
