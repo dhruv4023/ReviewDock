@@ -26,6 +26,8 @@ type PullRequest struct {
 	UpdatedAt       time.Time `json:"updated_at"`
 	BehindCount     int       `json:"behind_count"`
 	AheadCount      int       `json:"ahead_count"`
+	LocalAheadCount  int       `json:"local_ahead_count"`  // local branch commits not on remote
+	LocalBehindCount int       `json:"local_behind_count"` // remote tracking commits not in local
 	MergeableStatus string    `json:"mergeable_status"` // "mergeable", "conflicting", "unknown"
 	HTMLURL         string    `json:"html_url"`
 	Description     string    `json:"description"`

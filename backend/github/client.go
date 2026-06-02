@@ -8,6 +8,7 @@ import (
 	"strings"
 	"time"
 
+	"my-github-pr/backend/git"
 	"my-github-pr/backend/models"
 	"my-github-pr/logger"
 )
@@ -34,7 +35,7 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 }
 
 // FetchPRs retrieves open pull requests authored by the authenticated user for a repo.
-func (c *Client) FetchPRs(ctx context.Context, owner, repo string) ([]models.PullRequest, error) {
+func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath string) ([]models.PullRequest, error) {
 	logger.Infof("Fetching PRs for %s/%s via gh CLI", owner, repo)
 
 	const fields = "number,title,state,url,updatedAt,body,headRefName,baseRefName,isDraft,mergeable,headRepositoryOwner,headRepository"
@@ -51,16 +52,16 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string) ([]models.Pul
 	}
 
 	type ghPR struct {
-		Number      int    `json:"number"`
-		Title       string `json:"title"`
-		State       string `json:"state"`
-		URL         string `json:"url"`
-		UpdatedAt   string `json:"updatedAt"`
-		Body        string `json:"body"`
-		HeadRefName string `json:"headRefName"`
-		BaseRefName string `json:"baseRefName"`
-		IsDraft     bool   `json:"isDraft"`
-		Mergeable   string `json:"mergeable"`
+		Number              int    `json:"number"`
+		Title               string `json:"title"`
+		State               string `json:"state"`
+		URL                 string `json:"url"`
+		UpdatedAt           string `json:"updatedAt"`
+		Body                string `json:"body"`
+		HeadRefName         string `json:"headRefName"`
+		BaseRefName         string `json:"baseRefName"`
+		IsDraft             bool   `json:"isDraft"`
+		Mergeable           string `json:"mergeable"`
 		HeadRepositoryOwner struct {
 			Login string `json:"login"`
 		} `json:"headRepositoryOwner"`
@@ -81,14 +82,24 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string) ([]models.Pul
 	for _, item := range items {
 		updatedAt, _ := time.Parse(time.RFC3339, item.UpdatedAt)
 
-		// Build head/base labels (owner:branch format for cross-repo fork PRs)
-		headOwner := item.HeadRepositoryOwner.Login
-		headRepo := item.HeadRepository.Name
 		headLabel := item.HeadRefName
-		if headOwner != "" && (headOwner != owner || headRepo != repo) {
-			headLabel = fmt.Sprintf("%s:%s", headOwner, item.HeadRefName)
+		if upstream, err := git.GetUpstreamByBranch(ctx, localPath, item.HeadRefName); err == nil {
+			headLabel = fmt.Sprintf("%s:%s", upstream, item.HeadRefName)
+		} else {
+			logger.Errorf("Failed to get upstream for branch %s: %v", item.HeadRefName, err)
 		}
-		baseLabel := fmt.Sprintf("%s:%s", owner, item.BaseRefName)
+
+		baseLabel := item.BaseRefName
+		if upstream, err := git.GetUpstreamByBranch(ctx, localPath, baseLabel); err == nil {
+			baseLabel = fmt.Sprintf("%s:%s", upstream, baseLabel)
+		} else {
+			logger.Errorf("Failed to get upstream for branch %s: %v", item.BaseRefName, err)
+		}
+
+		ahead, behind, err := git.LocalAheadBehind(ctx, localPath, item.BaseRefName)
+		if err != nil {
+			logger.Errorf("Failed to get ahead/behind counts for branch %s: %v", item.BaseRefName, err)
+		}
 
 		state := strings.ToLower(item.State)
 		if item.IsDraft {
@@ -117,6 +128,8 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string) ([]models.Pul
 			IsDraft:         item.IsDraft,
 			UpdatedAt:       updatedAt,
 			MergeableStatus: mergeableStatus,
+			LocalAheadCount:      ahead,
+			LocalBehindCount:     behind,
 			HTMLURL:         item.URL,
 			Description:     item.Body,
 		}

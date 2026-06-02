@@ -64,6 +64,8 @@ export interface PullRequest {
   updated_at: string;
   behind_count: number;
   ahead_count: number;
+  local_ahead_count: number;
+  local_behind_count: number;
   mergeable_status: 'mergeable' | 'conflicting' | 'unknown';
   html_url: string;
   base_label: string;

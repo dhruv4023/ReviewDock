@@ -144,3 +144,42 @@ func (e *Executor) DetectBestRemote(ctx context.Context, dir string, priorities 
 
 	return "origin", nil
 }
+
+// LocalAheadBehind returns how many commits the local branch is ahead and behind
+// its remote tracking branch (remote/branch). Returns 0, 0, nil if the branch
+// does not exist locally or has no remote tracking ref — not treated as an error.
+func LocalAheadBehind(ctx context.Context, dir, branch string) (ahead, behind int, err error) {
+	out, err := exec.CommandContext(
+		ctx,
+		"git", "-C", dir,
+		"rev-list", "--left-right", "--count",
+		branch+"..."+branch+"@{upstream}",
+	).Output()
+	if err != nil {
+		return 0, 0, nil
+	}
+
+	_, err = fmt.Sscanf(strings.TrimSpace(string(out)), "%d %d", &ahead, &behind)
+	if err != nil {
+		return 0, 0, err
+	}
+
+	return ahead, behind, nil
+}
+
+func GetUpstreamByBranch(ctx context.Context, dir, branchName string) (string, error) {
+	out, err := exec.CommandContext(
+		ctx,
+		"git",
+		"-C",
+		dir,
+		"config",
+		"--get",
+		fmt.Sprintf("branch.%s.remote", branchName),
+	).Output()
+	if err != nil {
+		return "", err
+	}
+
+	return strings.TrimSpace(string(out)), nil
+}

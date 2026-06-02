@@ -16,6 +16,8 @@ export namespace models {
 	    updated_at: any;
 	    behind_count: number;
 	    ahead_count: number;
+	    local_ahead_count: number;
+	    local_behind_count: number;
 	    mergeable_status: string;
 	    html_url: string;
 	    description: string;
@@ -40,6 +42,8 @@ export namespace models {
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.behind_count = source["behind_count"];
 	        this.ahead_count = source["ahead_count"];
+	        this.local_ahead_count = source["local_ahead_count"];
+	        this.local_behind_count = source["local_behind_count"];
 	        this.mergeable_status = source["mergeable_status"];
 	        this.html_url = source["html_url"];
 	        this.description = source["description"];

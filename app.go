@@ -205,7 +205,7 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 		wg.Add(1)
 		go func(r models.Repository) {
 			defer wg.Done()
-			prs, err := a.ghClient.FetchPRs(a.ctx, r.Owner, r.Name)
+			prs, err := a.ghClient.FetchPRs(a.ctx, r.Owner, r.Name, r.LocalPath)
 			if err != nil {
 				errsChan <- fmt.Errorf("failed fetching for %s/%s: %w", r.Owner, r.Name, err)
 				return
@@ -215,6 +215,7 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 			mu.Unlock()
 		}(repo)
 	}
+
 
 	wg.Wait()
 	close(errsChan)
