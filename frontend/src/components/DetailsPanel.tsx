@@ -128,14 +128,14 @@ export const DetailsPanel: React.FC = () => {
           <div className="bg-[#0d1117] border border-zinc-850 rounded-lg p-2.5 space-y-1 text-[11px]">
             <div className="flex justify-between">
               <span className="text-gray-500">Head:</span>
-              <span className="font-mono text-zinc-300 truncate max-w-[160px]" title={selectedPR.head_branch}>
-                {selectedPR.head_branch}
+              <span className="font-mono text-zinc-300 truncate max-w-[160px]" title={(selectedPR as any).head_label || selectedPR.head_branch}>
+                {(selectedPR as any).head_label || selectedPR.head_branch}
               </span>
             </div>
             <div className="flex justify-between">
               <span className="text-gray-500">Base:</span>
-              <span className="font-mono text-zinc-300 truncate max-w-[160px]" title={selectedPR.base_branch}>
-                {selectedPR.base_branch}
+              <span className="font-mono text-zinc-300 truncate max-w-[160px]" title={(selectedPR as any).base_label || selectedPR.base_branch}>
+                {(selectedPR as any).base_label || selectedPR.base_branch}
               </span>
             </div>
             <div className="flex justify-between">

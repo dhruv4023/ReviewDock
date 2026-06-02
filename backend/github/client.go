@@ -129,9 +129,28 @@ func (c *Client) hydratePRDetails(owner, repo string, pr *models.PullRequest) er
 	var detail struct {
 		Mergeable *bool  `json:"mergeable"`
 		MState    string `json:"mergeable_state"`
+		Draft     bool   `json:"draft"`
+		Head      struct {
+			Label string `json:"label"`
+			Ref   string `json:"ref"`
+		} `json:"head"`
+		Base      struct {
+			Label string `json:"label"`
+			Ref   string `json:"ref"`
+		} `json:"base"`
 	}
 
 	if err := c.sendRequest(reqDetail, &detail); err == nil {
+		pr.IsDraft = detail.Draft
+		pr.HeadBranch = detail.Head.Ref
+		pr.BaseBranch = detail.Base.Ref
+		pr.HeadLabel = detail.Head.Label
+		pr.BaseLabel = detail.Base.Label
+		
+		if detail.Draft {
+			pr.State = "draft"
+		}
+
 		if detail.Mergeable == nil {
 			pr.MergeableStatus = "unknown"
 		} else if *detail.Mergeable {
@@ -142,8 +161,16 @@ func (c *Client) hydratePRDetails(owner, repo string, pr *models.PullRequest) er
 	}
 
 	// 2. Query comparison to find ahead/behind counts
-	// Base is baseBranch, Head is headBranch
-	urlCompare := fmt.Sprintf("https://api.github.com/repos/%s/%s/compare/%s...%s", owner, repo, pr.BaseBranch, pr.HeadBranch)
+	// Use Labels for compare to support cross-repository (fork) PRs
+	compareBase := pr.BaseLabel
+	if compareBase == "" {
+		compareBase = pr.BaseBranch
+	}
+	compareHead := pr.HeadLabel
+	if compareHead == "" {
+		compareHead = pr.HeadBranch
+	}
+	urlCompare := fmt.Sprintf("https://api.github.com/repos/%s/%s/compare/%s...%s", owner, repo, compareBase, compareHead)
 	reqCompare, err := http.NewRequest("GET", urlCompare, nil)
 	if err != nil {
 		return err

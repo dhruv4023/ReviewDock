@@ -35,8 +35,8 @@ export const PRTable: React.FC = () => {
       // 1. Search text (matches branch names or title)
       const matchesSearch = 
         pr.title.toLowerCase().includes(search.toLowerCase()) || 
-        pr.head_branch.toLowerCase().includes(search.toLowerCase()) ||
-        pr.base_branch.toLowerCase().includes(search.toLowerCase());
+        (pr.head_label || pr.head_branch).toLowerCase().includes(search.toLowerCase()) ||
+        (pr.base_label || pr.base_branch).toLowerCase().includes(search.toLowerCase());
       
       // 2. Repo filter
       const matchesRepo = repoFilter === 'all' || pr.repo_name === repoFilter;
@@ -245,14 +245,14 @@ export const PRTable: React.FC = () => {
                     <td className="py-2.5 px-2 text-zinc-400 truncate max-w-[120px]" title={pr.repo_name}>
                       {pr.repo_name}
                     </td>
-                    <td className="py-2.5 px-2 text-gray-400 truncate max-w-[100px]" title={pr.base_branch}>
+                    <td className="py-2.5 px-2 text-gray-400 truncate max-w-[100px]" title={pr.base_label || pr.base_branch}>
                       <span className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700 text-[10px]">
-                        {pr.base_branch}
+                        {pr.base_label || pr.base_branch}
                       </span>
                     </td>
-                    <td className="py-2.5 px-2 text-gray-450 truncate max-w-[100px]" title={pr.head_branch}>
+                    <td className="py-2.5 px-2 text-gray-450 truncate max-w-[100px]" title={pr.head_label || pr.head_branch}>
                       <span className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700 text-[10px] text-zinc-300">
-                        {pr.head_branch}
+                        {pr.head_label || pr.head_branch}
                       </span>
                     </td>
                     <td className="py-2.5 px-2">

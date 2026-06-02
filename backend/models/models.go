@@ -19,6 +19,8 @@ type PullRequest struct {
 	RepoName        string    `json:"repo_name"`
 	BaseBranch      string    `json:"base_branch"`
 	HeadBranch      string    `json:"head_branch"`
+	BaseLabel       string    `json:"base_label"`
+	HeadLabel       string    `json:"head_label"`
 	State           string    `json:"state"` // "open", "closed", "draft"
 	IsDraft         bool      `json:"is_draft"`
 	UpdatedAt       time.Time `json:"updated_at"`

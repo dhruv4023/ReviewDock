@@ -8,6 +8,8 @@ export namespace models {
 	    repo_name: string;
 	    base_branch: string;
 	    head_branch: string;
+	    base_label: string;
+	    head_label: string;
 	    state: string;
 	    is_draft: boolean;
 	    // Go type: time
@@ -31,6 +33,8 @@ export namespace models {
 	        this.repo_name = source["repo_name"];
 	        this.base_branch = source["base_branch"];
 	        this.head_branch = source["head_branch"];
+	        this.base_label = source["base_label"];
+	        this.head_label = source["head_label"];
 	        this.state = source["state"];
 	        this.is_draft = source["is_draft"];
 	        this.updated_at = this.convertValues(source["updated_at"], null);
