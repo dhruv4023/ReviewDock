@@ -85,8 +85,8 @@ export interface Settings {
 export interface RebaseRequest {
   id: string;
   repo_id: string;
-  head_branch: string;
-  base_branch: string;
+  head_label: string;
+  base_label: string;
 }
 
 interface AppState {
@@ -245,12 +245,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { prs, selectedPRIds } = get();
     const targets = prs.filter(pr => selectedPRIds.includes(pr.id));
     if (targets.length === 0) return;
-
     const requests: RebaseRequest[] = targets.map(pr => ({
       id: pr.id,
       repo_id: pr.repo_id,
-      head_branch: pr.head_branch,
-      base_branch: pr.base_branch,
+      head_label: pr.head_label,
+      base_label: pr.base_label,
     }));
 
     try {

@@ -3,6 +3,7 @@ package queue
 import (
 	"context"
 	"fmt"
+	"strings"
 	"sync"
 	"time"
 
@@ -16,8 +17,8 @@ type Job struct {
 	ID         string // Unique identifier for the job (e.g. repoName-PRNumber)
 	RepoName   string
 	RepoPath   string
-	HeadBranch string
-	BaseBranch string
+	HeadLabel  string
+	BaseLabel  string
 	Options    models.Settings
 }
 
@@ -53,7 +54,7 @@ func (m *Manager) Start(ctx context.Context) {
 
 func (m *Manager) Submit(job Job) {
 	m.jobsChan <- job
-	m.log(fmt.Sprintf("\u001b[33m[%s] Queued PR branch '%s' for rebasing onto '%s'\u001b[0m\r\n", job.RepoName, job.HeadBranch, job.BaseBranch))
+	m.log(fmt.Sprintf("\u001b[33m[%s] Queued PR branch '%s' for rebasing onto '%s'\u001b[0m\r\n", job.RepoName, job.HeadLabel, job.BaseLabel))
 }
 
 func (m *Manager) Cancel(jobID string) {
@@ -96,7 +97,7 @@ func (m *Manager) worker(ctx context.Context) {
 			m.activeJobs[job.ID] = cancel
 			m.activeMu.Unlock()
 
-			m.log(fmt.Sprintf("\u001b[32m[%s] Starting rebase process for branch '%s'...\u001b[0m\r\n", job.RepoName, job.HeadBranch))
+			m.log(fmt.Sprintf("\u001b[32m[%s] Starting rebase process for branch '%s'...\u001b[0m\r\n", job.RepoName, job.HeadLabel))
 
 			err := m.processRebase(jobCtx, job)
 
@@ -134,25 +135,32 @@ func (m *Manager) processRebase(ctx context.Context, job Job) error {
 		return fmt.Errorf("failed fetching remotes: %w", err)
 	}
 
+	headBranch, headBranchRemote := "", ""
 	// 3. Detect target Remote
-	remote, err := m.gitExecutor.DetectBestRemote(ctx, job.RepoPath, job.Options.DefaultRemotePriority)
-	if err != nil {
-		return fmt.Errorf("failed detecting remote: %w", err)
+	parts := strings.Split(job.HeadLabel, "/")
+	if len(parts) != 2 {
+		headBranch = job.HeadLabel
+	} else {
+		headBranchRemote = parts[0]
+		headBranch = parts[1]
 	}
-	logger(fmt.Sprintf("Using remote '%s' for rebase and push", remote))
+	parts = strings.Split(job.BaseLabel, "/")
+	baseBranch, baseBranchRemote := "", ""
+	if len(parts) != 2 {
+		return fmt.Errorf("invalid base label format: %s", job.BaseLabel)
+	}
+	baseBranchRemote = parts[0]
+	baseBranch = parts[1]
 
 	// 4. Checkout branch
-	logger(fmt.Sprintf("Checking out head branch '%s'...", job.HeadBranch))
-	if err := m.gitExecutor.Checkout(ctx, job.RepoPath, job.HeadBranch, logger); err != nil {
-		logger("Branch not found locally, checking out from remote tracking branch...")
-		if err := m.gitExecutor.CheckoutRemoteBranch(ctx, job.RepoPath, job.HeadBranch, remote, logger); err != nil {
-			return fmt.Errorf("failed checking out head branch: %w", err)
-		}
+	logger(fmt.Sprintf("Checking out head branch '%s'...", headBranch))
+	if err := m.gitExecutor.Checkout(ctx, job.RepoPath, headBranch, logger); err != nil {
+		return fmt.Errorf("failed checking out head branch: %w", err)
 	}
 
 	// 5. Rebase onto base branch
-	logger(fmt.Sprintf("Rebasing '%s' onto '%s/%s'...", job.HeadBranch, remote, job.BaseBranch))
-	if err := m.gitExecutor.Rebase(ctx, job.RepoPath, job.BaseBranch, remote, logger); err != nil {
+	logger(fmt.Sprintf("Rebasing '%s' onto '%s/%s'...", job.HeadLabel, baseBranchRemote, baseBranch))
+	if err := m.gitExecutor.Rebase(ctx, job.RepoPath, baseBranch, baseBranchRemote, logger); err != nil {
 		logger("Conflict detected! Attempting to abort rebase...")
 		_ = m.gitExecutor.RebaseAbort(ctx, job.RepoPath, logger)
 		return fmt.Errorf("rebase failed due to merge conflicts: %w", err)
@@ -168,11 +176,21 @@ func (m *Manager) processRebase(ctx context.Context, job Job) error {
 
 	// 7. Force push branch if enabled
 	if job.Options.ForcePushAfterRebase {
-		logger(fmt.Sprintf("Force pushing branch '%s' to remote '%s' using safe push lease...", job.HeadBranch, remote))
-		if err := m.gitExecutor.ForcePush(ctx, job.RepoPath, remote, job.HeadBranch, logger); err != nil {
-			return fmt.Errorf("force push failed: %w", err)
-		}
+		logger(fmt.Sprintf("Force pushing branch '%s' to remote '%s' using safe push lease...", job.HeadLabel, headBranchRemote))
+	// 	if err := m.gitExecutor.ForcePush(ctx, job.RepoPath, headBranchRemote, job.HeadLabel, logger); err != nil {
+	// 		return fmt.Errorf("force push failed: %w", err)
+	// 	}
 	}
 
+	return nil
+}
+
+func (m *Manager) ProcessRemoteUpdate(ctx context.Context, localPath string) error {
+	logger := func(msg string) {
+		m.log(msg)
+	}
+	if err := m.gitExecutor.Fetch(ctx, localPath, logger); err != nil {
+		return fmt.Errorf("failed fetching remotes: %w", err)
+	}
 	return nil
 }

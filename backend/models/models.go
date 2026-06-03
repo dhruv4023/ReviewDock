@@ -24,13 +24,12 @@ type PullRequest struct {
 	State           string    `json:"state"` // "open", "closed", "draft"
 	IsDraft         bool      `json:"is_draft"`
 	UpdatedAt       time.Time `json:"updated_at"`
-	BehindCount     int       `json:"behind_count"`
-	AheadCount      int       `json:"ahead_count"`
 	LocalAheadCount  int       `json:"local_ahead_count"`  // local branch commits not on remote
 	LocalBehindCount int       `json:"local_behind_count"` // remote tracking commits not in local
 	MergeableStatus string    `json:"mergeable_status"` // "mergeable", "conflicting", "unknown"
 	HTMLURL         string    `json:"html_url"`
 	Description     string    `json:"description"`
+	CIStatus        string    `json:"ci_status"` // "success", "failure", "running", "none", "unknown"
 }
 
 type User struct {
@@ -59,6 +58,6 @@ type Settings struct {
 type RebaseRequest struct {
 	ID         string `json:"id"` // PR ID or number
 	RepoID     string `json:"repo_id"`
-	HeadBranch string `json:"head_branch"`
-	BaseBranch string `json:"base_branch"`
+	HeadLabel  string `json:"head_label"`
+	BaseLabel  string `json:"base_label"`
 }

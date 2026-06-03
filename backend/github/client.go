@@ -84,19 +84,19 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 
 		headLabel := item.HeadRefName
 		if upstream, err := git.GetUpstreamByBranch(ctx, localPath, item.HeadRefName); err == nil {
-			headLabel = fmt.Sprintf("%s:%s", upstream, item.HeadRefName)
+			headLabel = fmt.Sprintf("%s/%s", upstream, item.HeadRefName)
 		} else {
 			logger.Errorf("Failed to get upstream for branch %s: %v", item.HeadRefName, err)
 		}
 
 		baseLabel := item.BaseRefName
 		if upstream, err := git.GetUpstreamByBranch(ctx, localPath, baseLabel); err == nil {
-			baseLabel = fmt.Sprintf("%s:%s", upstream, baseLabel)
+			baseLabel = fmt.Sprintf("%s/%s", upstream, baseLabel)
 		} else {
 			logger.Errorf("Failed to get upstream for branch %s: %v", item.BaseRefName, err)
 		}
 
-		ahead, behind, err := git.LocalAheadBehind(ctx, localPath, item.BaseRefName)
+		ahead, behind, err := git.LocalAheadBehind(ctx, localPath, baseLabel, item.HeadRefName)
 		if err != nil {
 			logger.Errorf("Failed to get ahead/behind counts for branch %s: %v", item.BaseRefName, err)
 		}
@@ -134,42 +134,10 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 			Description:     item.Body,
 		}
 
-		// Enrich with ahead/behind counts via gh api (no direct gh command for compare)
-		_ = c.fetchCompareCounts(ctx, owner, repo, &pr)
-
 		result = append(result, pr)
 	}
 
 	return result, nil
-}
-
-// fetchCompareCounts populates AheadCount and BehindCount.
-// Uses `gh api` because no top-level gh command exists for branch comparison.
-func (c *Client) fetchCompareCounts(ctx context.Context, owner, repo string, pr *models.PullRequest) error {
-	compareBase := pr.BaseLabel
-	if compareBase == "" {
-		compareBase = pr.BaseBranch
-	}
-	compareHead := pr.HeadLabel
-	if compareHead == "" {
-		compareHead = pr.HeadBranch
-	}
-
-	out, err := c.run(ctx, "api",
-		fmt.Sprintf("repos/%s/%s/compare/%s...%s", owner, repo, compareBase, compareHead),
-		"--jq", "[.ahead_by, .behind_by] | @json",
-	)
-	if err != nil {
-		return err
-	}
-
-	var counts [2]int
-	if err := json.Unmarshal([]byte(strings.TrimSpace(string(out))), &counts); err != nil {
-		return err
-	}
-	pr.AheadCount = counts[0]
-	pr.BehindCount = counts[1]
-	return nil
 }
 
 // FetchCombinedCIStatus returns an aggregated CI result for the given head ref.

@@ -5,8 +5,10 @@ import (
 	"context"
 	"fmt"
 	"io"
+	"my-github-pr/logger"
 	"os/exec"
 	"strings"
+	"sync"
 )
 
 type LogWriter func(message string)
@@ -47,21 +49,30 @@ func (e *Executor) runCommand(ctx context.Context, dir string, log LogWriter, ar
 		return err
 	}
 
-	// Read stdout and stderr concurrently
+	// Read stdout and stderr concurrently.
+	// IMPORTANT: close(outputChan) must only happen after BOTH reader goroutines
+	// have finished sending — cmd.Wait() returning does NOT guarantee that, since
+	// the scanners may still be in the middle of a send when the process exits.
+	// Use a WaitGroup so the closer goroutine waits for both readers.
 	outputChan := make(chan string)
+	var readersWg sync.WaitGroup
+
 	readPipe := func(reader io.Reader) {
+		defer readersWg.Done()
 		scanner := bufio.NewScanner(reader)
 		for scanner.Scan() {
 			outputChan <- scanner.Text()
 		}
 	}
 
+	readersWg.Add(2)
 	go readPipe(stdoutPipe)
 	go readPipe(stderrPipe)
 
-	// Wait for readers in background
+	// Close the channel only after both readers have exited.
 	go func() {
 		_ = cmd.Wait()
+		readersWg.Wait()
 		close(outputChan)
 	}()
 
@@ -90,6 +101,10 @@ func (e *Executor) IsClean(ctx context.Context, dir string) (bool, error) {
 
 func (e *Executor) Fetch(ctx context.Context, dir string, log LogWriter) error {
 	return e.runCommand(ctx, dir, log, "fetch", "--all", "--prune")
+}
+
+func (e *Executor) RemoteUpdate(ctx context.Context, dir string, log LogWriter) error {
+	return e.runCommand(ctx, dir, log, "remote", "update")
 }
 
 func (e *Executor) Checkout(ctx context.Context, dir string, branch string, log LogWriter) error {
@@ -148,14 +163,15 @@ func (e *Executor) DetectBestRemote(ctx context.Context, dir string, priorities 
 // LocalAheadBehind returns how many commits the local branch is ahead and behind
 // its remote tracking branch (remote/branch). Returns 0, 0, nil if the branch
 // does not exist locally or has no remote tracking ref — not treated as an error.
-func LocalAheadBehind(ctx context.Context, dir, branch string) (ahead, behind int, err error) {
+func LocalAheadBehind(ctx context.Context, dir, baseLabel, headBranch string) (ahead, behind int, err error) {
 	out, err := exec.CommandContext(
 		ctx,
 		"git", "-C", dir,
 		"rev-list", "--left-right", "--count",
-		branch+"..."+branch+"@{upstream}",
+		baseLabel+"..."+headBranch,
 	).Output()
 	if err != nil {
+		logger.Infof("Ahead/Behind counts: %s, %s, %s, %s", out, dir, baseLabel, headBranch)
 		return 0, 0, nil
 	}
 

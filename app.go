@@ -15,6 +15,7 @@ import (
 	"my-github-pr/backend/models"
 	"my-github-pr/backend/queue"
 	"my-github-pr/backend/storage"
+	"my-github-pr/logger"
 )
 
 type App struct {
@@ -195,16 +196,17 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-
+	
 	var allPRs []models.PullRequest
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errsChan := make(chan error, len(repos))
-
+	
 	for _, repo := range repos {
 		wg.Add(1)
 		go func(r models.Repository) {
 			defer wg.Done()
+			a.queueManager.ProcessRemoteUpdate(a.ctx, r.LocalPath)
 			prs, err := a.ghClient.FetchPRs(a.ctx, r.Owner, r.Name, r.LocalPath)
 			if err != nil {
 				errsChan <- fmt.Errorf("failed fetching for %s/%s: %w", r.Owner, r.Name, err)
@@ -275,13 +277,13 @@ func (a *App) RebasePRs(requests []models.RebaseRequest) error {
 		if !exists {
 			continue
 		}
-
+		logger.Infof("%v | %v", req, repo)
 		job := queue.Job{
 			ID:         req.ID,
 			RepoName:   repo.Owner + "/" + repo.Name,
 			RepoPath:   repo.LocalPath,
-			HeadBranch: req.HeadBranch,
-			BaseBranch: req.BaseBranch,
+			HeadLabel:  req.HeadLabel,
+			BaseLabel:  req.BaseLabel,
 			Options:    *settings,
 		}
 

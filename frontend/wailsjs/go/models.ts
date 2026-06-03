@@ -14,13 +14,12 @@ export namespace models {
 	    is_draft: boolean;
 	    // Go type: time
 	    updated_at: any;
-	    behind_count: number;
-	    ahead_count: number;
 	    local_ahead_count: number;
 	    local_behind_count: number;
 	    mergeable_status: string;
 	    html_url: string;
 	    description: string;
+	    ci_status: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new PullRequest(source);
@@ -40,13 +39,12 @@ export namespace models {
 	        this.state = source["state"];
 	        this.is_draft = source["is_draft"];
 	        this.updated_at = this.convertValues(source["updated_at"], null);
-	        this.behind_count = source["behind_count"];
-	        this.ahead_count = source["ahead_count"];
 	        this.local_ahead_count = source["local_ahead_count"];
 	        this.local_behind_count = source["local_behind_count"];
 	        this.mergeable_status = source["mergeable_status"];
 	        this.html_url = source["html_url"];
 	        this.description = source["description"];
+	        this.ci_status = source["ci_status"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -70,8 +68,8 @@ export namespace models {
 	export class RebaseRequest {
 	    id: string;
 	    repo_id: string;
-	    head_branch: string;
-	    base_branch: string;
+	    head_label: string;
+	    base_label: string;
 	
 	    static createFrom(source: any = {}) {
 	        return new RebaseRequest(source);
@@ -81,8 +79,8 @@ export namespace models {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.id = source["id"];
 	        this.repo_id = source["repo_id"];
-	        this.head_branch = source["head_branch"];
-	        this.base_branch = source["base_branch"];
+	        this.head_label = source["head_label"];
+	        this.base_label = source["base_label"];
 	    }
 	}
 	export class Repository {

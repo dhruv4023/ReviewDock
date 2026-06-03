@@ -18,8 +18,8 @@ export const PRTable: React.FC = () => {
     setSettings
   } = useAppStore();
 
-  const [stateFilter, setStateFilter] = useState<'open' | 'draft' | 'closed' | 'all'>('open');
-  const [excludeDrafts, setExcludeDrafts] = useState(true);
+  const [stateFilter, setStateFilter] = useState<'open' | 'draft' | 'closed' | 'all'>('all');
+  const [excludeDrafts, setExcludeDrafts] = useState(false);
   const [repoFilter, setRepoFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
 
