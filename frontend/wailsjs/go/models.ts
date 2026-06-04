@@ -14,6 +14,8 @@ export namespace models {
 	    is_draft: boolean;
 	    // Go type: time
 	    updated_at: any;
+	    ahead_count: number;
+	    behind_count: number;
 	    local_ahead_count: number;
 	    local_behind_count: number;
 	    mergeable_status: string;
@@ -39,6 +41,8 @@ export namespace models {
 	        this.state = source["state"];
 	        this.is_draft = source["is_draft"];
 	        this.updated_at = this.convertValues(source["updated_at"], null);
+	        this.ahead_count = source["ahead_count"];
+	        this.behind_count = source["behind_count"];
 	        this.local_ahead_count = source["local_ahead_count"];
 	        this.local_behind_count = source["local_behind_count"];
 	        this.mergeable_status = source["mergeable_status"];

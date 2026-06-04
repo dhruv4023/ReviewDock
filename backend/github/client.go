@@ -97,7 +97,12 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 			logger.Errorf("Failed to get upstream for branch %s: %v", item.BaseRefName, err)
 		}
 
-		ahead, behind, err := git.LocalAheadBehind(ctx, localPath, baseLabel, item.HeadRefName)
+		localAhead, localBehind, err := git.LocalAheadBehind(ctx, localPath, baseLabel, item.HeadRefName)
+		if err != nil {
+			logger.Errorf("Failed to get ahead/behind counts for branch %s: %v", item.BaseRefName, err)
+		}
+
+		ahead, behind, err := git.LocalAheadBehind(ctx, localPath, baseLabel, headLabel)
 		if err != nil {
 			logger.Errorf("Failed to get ahead/behind counts for branch %s: %v", item.BaseRefName, err)
 		}
@@ -129,8 +134,10 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 			IsDraft:          item.IsDraft,
 			UpdatedAt:        updatedAt,
 			MergeableStatus:  mergeableStatus,
-			LocalAheadCount:  ahead,
-			LocalBehindCount: behind,
+			AheadCount:       ahead,
+			BehindCount:      behind,
+			LocalAheadCount:  localAhead,
+			LocalBehindCount: localBehind,
 			HTMLURL:          item.URL,
 			Description:      item.Body,
 		}

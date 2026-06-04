@@ -255,8 +255,8 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
                 <th className="py-2.5 px-2 w-28">Base Branch</th>
                 <th className="py-2.5 px-2 w-28">Head Branch</th>
                 <th className="py-2.5 px-2 w-20">Merge Status</th>
-                <th className="py-2.5 px-2 w-16 text-center">Behind</th>
-                <th className="py-2.5 px-2 w-16 text-center">Ahead</th>
+                <th className="py-2.5 px-2 w-16 text-center">Remote Sync</th>
+                <th className="py-2.5 px-2 w-24 text-center">Local Sync</th>
                 <th className="py-2.5 px-3 w-28 text-right">Updated</th>
               </tr>
             </thead>
@@ -325,17 +325,23 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
                       )}
                     </td>
                     <td className="py-2.5 px-2 text-center">
-                      <span className={`px-1 py-0.5 rounded text-[10px] ${
-                        pr.local_ahead_count > 0 ? 'bg-amber-950/40 text-amber-400' : 'text-zinc-500'
+                      <span className={`inline-flex items-center gap-1 font-mono text-[10px] ${
+                        (pr.ahead_count > 0 || pr.behind_count > 0)
+                          ? 'text-amber-400'
+                          : 'text-zinc-600'
                       }`}>
-                        {pr.local_ahead_count}
+                        <span title="Local commits not on remote">↑{pr.ahead_count}</span>
+                        <span title="Remote commits not in local">↓{pr.behind_count}</span>
                       </span>
                     </td>
                     <td className="py-2.5 px-2 text-center">
-                      <span className={`px-1 py-0.5 rounded text-[10px] ${
-                        pr.local_behind_count > 0 ? 'bg-blue-950/40 text-blue-400' : 'text-zinc-500'
+                      <span className={`inline-flex items-center gap-1 font-mono text-[10px] ${
+                        (pr.local_ahead_count > 0 || pr.local_behind_count > 0)
+                          ? 'text-amber-400'
+                          : 'text-zinc-600'
                       }`}>
-                        {pr.local_behind_count}
+                        <span title="Local commits not on remote">↑{pr.local_ahead_count}</span>
+                        <span title="Remote commits not in local">↓{pr.local_behind_count}</span>
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-right text-gray-500 text-[10px]">
