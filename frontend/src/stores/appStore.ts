@@ -99,6 +99,8 @@ export interface PendingRemoteSetup {
   remotes: string[];
   /** The full queue of rebase requests waiting to be submitted (includes this PR). */
   pendingRequests: RebaseRequest[];
+  /** When true, RebasePRs is called after all remotes are resolved. False = tracking-only (WiFi icon). */
+  submitAfterSetup: boolean;
 }
 
 interface AppState {
@@ -134,7 +136,7 @@ interface AppState {
   /** Called by RemoteSetupModal when the user skips the current PR. */
   skipRemoteSetup: () => Promise<void>;
   /** @internal Walks pending requests, opens modal for the first untracked branch or submits all. */
-  _processNextRemoteSetup: (requests: RebaseRequest[]) => Promise<void>;
+  _processNextRemoteSetup: (requests: RebaseRequest[], submitAfterSetup: boolean) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -276,12 +278,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
     // Check each request for missing remote tracking.
     // A head_label without "/" means GetUpstreamByBranch failed — no tracking configured.
-    await get()._processNextRemoteSetup(requests);
+    // submitAfterSetup=true: once all remotes resolved, submit jobs to queue.
+    await get()._processNextRemoteSetup(requests, true);
   },
 
   // Internal: walk the pending requests list; for the first one that lacks a remote,
-  // open the modal. Otherwise submit all to the backend.
-  _processNextRemoteSetup: async (requests: RebaseRequest[]) => {
+  // open the modal. Otherwise submit all to the backend (only if submitAfterSetup=true).
+  _processNextRemoteSetup: async (requests: RebaseRequest[], submitAfterSetup: boolean) => {
     const { prs } = get();
 
     for (let i = 0; i < requests.length; i++) {
@@ -297,6 +300,7 @@ export const useAppStore = create<AppState>((set, get) => ({
               pr,
               remotes: remotes || [],
               pendingRequests: requests,
+              submitAfterSetup,
             },
           });
           // Modal takes over from here; confirmRemoteSetup / skipRemoteSetup will continue.
@@ -308,13 +312,17 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
     }
 
-    // All requests have valid head_labels — submit the batch.
+    // All requests have valid head_labels.
     set({ pendingRemoteSetup: null });
-    try {
-      await window.go.main.App.RebasePRs(requests);
-    } catch (err) {
-      console.error('Rebase trigger failed', err);
+    if (submitAfterSetup) {
+      // Rebase button path: submit jobs to the queue.
+      try {
+        await window.go.main.App.RebasePRs(requests);
+      } catch (err) {
+        console.error('Rebase trigger failed', err);
+      }
     }
+    // WiFi icon path (submitAfterSetup=false): tracking is set, just close — nothing more to do.
   },
 
   confirmRemoteSetup: async (remote: string) => {
@@ -341,8 +349,8 @@ export const useAppStore = create<AppState>((set, get) => ({
           : req
       );
 
-      // Continue processing the (now-updated) queue
-      await get()._processNextRemoteSetup(updatedRequests);
+      // Continue processing the (now-updated) queue, preserving the submit intent.
+      await get()._processNextRemoteSetup(updatedRequests, setup.submitAfterSetup);
     } catch (err) {
       console.error('SetBranchTracking failed', err);
       set({ pendingRemoteSetup: null });
@@ -356,7 +364,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     // Remove the skipped PR from the pending batch and continue
     const { pr, pendingRequests } = setup;
     const remaining = pendingRequests.filter(req => req.id !== pr.id);
-    await get()._processNextRemoteSetup(remaining);
+    await get()._processNextRemoteSetup(remaining, setup.submitAfterSetup);
   },
 
   cancelRebase: async (jobID) => {

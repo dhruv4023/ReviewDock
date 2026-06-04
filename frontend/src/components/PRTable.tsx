@@ -25,6 +25,7 @@ export const PRTable: React.FC = () => {
   const [excludeDrafts, setExcludeDrafts] = useState(false);
   const [repoFilter, setRepoFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
+  const [noTrackingOnly, setNoTrackingOnly] = useState(false);
 
   // Auto-derived repo list for filter selector
   const repositoriesList = useMemo(() => {
@@ -59,9 +60,14 @@ export const PRTable: React.FC = () => {
         matchesState = pr.state === 'closed';
       }
 
+      // 5. No-tracking filter
+      if (noTrackingOnly && pr.head_label?.includes('/')) {
+        return false;
+      }
+
       return matchesSearch && matchesRepo && matchesState;
     });
-  }, [prs, search, repoFilter, stateFilter, excludeDrafts]);
+  }, [prs, search, repoFilter, stateFilter, excludeDrafts, noTrackingOnly]);
 
   const allSelected = useMemo(() => {
     if (filteredPRs.length === 0) return false;
@@ -91,15 +97,20 @@ export const PRTable: React.FC = () => {
     deselectAllPRs();
   };
 
-  // Opens the remote-setup modal for a single PR directly (e.g. WiFi icon click).
+  // Opens the remote-setup modal for all untracked PRs in the same repository.
+  // submitAfterSetup=false: only sets tracking, does NOT trigger a rebase/push job.
   const handleSetRemote = async (e: React.MouseEvent, pr: import('../stores/appStore').PullRequest) => {
     e.stopPropagation();
-    await _processNextRemoteSetup([{
-      id: pr.id,
-      repo_id: pr.repo_id,
-      head_label: pr.head_label || pr.head_branch,
-      base_label: pr.base_label || pr.base_branch,
-    }]);
+    // Collect all PRs in the same repo that also lack a remote, starting with the clicked one.
+    const sameRepoUntracked = prs
+      .filter(p => p.repo_id === pr.repo_id && !p.head_label?.includes('/'))
+      .sort((a, b) => (a.id === pr.id ? -1 : b.id === pr.id ? 1 : 0)); // clicked PR first
+    await _processNextRemoteSetup(sameRepoUntracked.map(p => ({
+      id: p.id,
+      repo_id: p.repo_id,
+      head_label: p.head_label || p.head_branch,
+      base_label: p.base_label || p.base_branch,
+    })), false); // false = tracking only, no rebase after
   };
 
   return (
@@ -195,6 +206,18 @@ export const PRTable: React.FC = () => {
             className="accent-blue-600 rounded"
           />
           Exclude Draft PRs
+        </label>
+
+        <label className="flex items-center gap-2 text-xs cursor-pointer select-none">
+          <input
+            type="checkbox"
+            checked={noTrackingOnly}
+            onChange={(e) => setNoTrackingOnly(e.target.checked)}
+            className="accent-amber-500 rounded"
+          />
+          <span className={noTrackingOnly ? 'text-amber-400 font-medium' : 'text-gray-400'}>
+            No Tracking Only
+          </span>
         </label>
       </div>
 
