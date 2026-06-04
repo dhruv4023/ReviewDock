@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X } from 'lucide-react';
+import { ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X, Copy, Check, Eye } from 'lucide-react';
 
 interface DetailsPanelProps {
   /** Current panel width in px. Controlled by App.tsx drag logic. */
@@ -14,6 +14,17 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
   const { selectedPR, settings, setSettings, rebaseSelected, toggleSelectPR, selectedPRIds } = useAppStore();
   const [ciStatus, setCiStatus] = useState<string>('loading');
   const [isRefreshingCi, setIsRefreshingCi] = useState(false);
+
+  // States for copy feedback
+  const [copiedHead, setCopiedHead] = useState(false);
+  const [copiedBase, setCopiedBase] = useState(false);
+  const [copiedDiff, setCopiedDiff] = useState(false);
+  const [copiedModalDiff, setCopiedModalDiff] = useState(false);
+
+  // States for Diff Modal
+  const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
+  const [diffText, setDiffText] = useState('');
+  const [isLoadingDiff, setIsLoadingDiff] = useState(false);
 
   const fetchCI = async () => {
     if (!selectedPR) return;
@@ -32,6 +43,9 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
     if (selectedPR) {
       setCiStatus('loading');
       fetchCI();
+      // Reset diff states
+      setIsDiffModalOpen(false);
+      setDiffText('');
     }
   }, [selectedPR]);
 
@@ -42,6 +56,60 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
     toggleSelectPR(selectedPR.id);
     await rebaseSelected();
     if (!currentSelected.includes(selectedPR.id)) toggleSelectPR(selectedPR.id);
+  };
+
+  const copyToClipboard = (text: string, setCopiedState: (v: boolean) => void) => {
+    navigator.clipboard.writeText(text);
+    setCopiedState(true);
+    setTimeout(() => setCopiedState(false), 1500);
+  };
+
+  const handleViewDiff = async () => {
+    if (!selectedPR) return;
+    setIsDiffModalOpen(true);
+    setIsLoadingDiff(true);
+    try {
+      const baseRef = selectedPR.base_label || selectedPR.base_branch;
+      const headRef = selectedPR.head_branch;
+      const diff = await window.go.main.App.GetPRDiff(selectedPR.repo_id, baseRef, headRef);
+      setDiffText(diff);
+    } catch (err) {
+      setDiffText(`Failed to load diff: ${err}`);
+    } finally {
+      setIsLoadingDiff(false);
+    }
+  };
+
+  const handleCopyDiff = async () => {
+    if (!selectedPR) return;
+    try {
+      const baseRef = selectedPR.base_label || selectedPR.base_branch;
+      const headRef = selectedPR.head_branch;
+      const diff = await window.go.main.App.GetPRDiff(selectedPR.repo_id, baseRef, headRef);
+      copyToClipboard(diff || "No changes / Empty diff", setCopiedDiff);
+    } catch (err) {
+      alert(`Failed to fetch and copy diff: ${err}`);
+    }
+  };
+
+  const formatDiffLine = (line: string, index: number) => {
+    let className = 'py-0.5 px-2 font-mono whitespace-pre-wrap text-[11px] ';
+    if (line.startsWith('+')) {
+      className += 'bg-green-950/30 text-green-400 border-l-2 border-green-600';
+    } else if (line.startsWith('-')) {
+      className += 'bg-red-950/30 text-red-400 border-l-2 border-red-600';
+    } else if (line.startsWith('@@')) {
+      className += 'bg-blue-950/20 text-blue-400 font-semibold';
+    } else if (line.startsWith('diff --git') || line.startsWith('index ') || line.startsWith('--- ') || line.startsWith('+++ ')) {
+      className += 'text-zinc-500 font-semibold';
+    } else {
+      className += 'text-zinc-300';
+    }
+    return (
+      <div key={index} className={className}>
+        {line}
+      </div>
+    );
   };
 
   return (
@@ -68,14 +136,12 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
           )}
           <div className="flex items-center gap-2">
             {selectedPR && (
-              <a
-                href={selectedPR.html_url}
-                target="_blank"
-                rel="noopener noreferrer"
-                className="flex items-center gap-1 text-blue-500 hover:text-blue-400 font-medium transition"
+              <button
+                onClick={() => window.runtime.BrowserOpenURL(selectedPR.html_url)}
+                className="flex items-center gap-1 text-blue-500 hover:text-blue-400 font-medium transition cursor-pointer"
               >
                 GitHub <ExternalLink size={11} />
-              </a>
+              </button>
             )}
             <button
               onClick={onClose}
@@ -130,25 +196,72 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
             {/* Branch info */}
             <div>
               <h4 className="font-semibold text-gray-400 mb-1.5">Branch Configuration</h4>
-              <div className="bg-[#0d1117] border border-zinc-800 rounded-lg p-2.5 space-y-1 text-[11px]">
-                <div className="flex justify-between gap-2">
+              <div className="bg-[#0d1117] border border-zinc-800 rounded-lg p-2.5 space-y-2 text-[11px]">
+                <div className="flex items-center justify-between gap-2 group/branch">
                   <span className="text-gray-500 shrink-0">Head:</span>
-                  <span className="font-mono text-zinc-300 truncate" title={selectedPR.head_label || selectedPR.head_branch}>
-                    {selectedPR.head_label || selectedPR.head_branch}
-                  </span>
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span 
+                      className="font-mono text-zinc-300 truncate" 
+                      title={selectedPR.head_label || selectedPR.head_branch}
+                    >
+                      {selectedPR.head_label || selectedPR.head_branch}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(selectedPR.head_branch, setCopiedHead)}
+                      className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition shrink-0"
+                      title="Copy Head Branch Name"
+                    >
+                      {copiedHead ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex justify-between gap-2">
+
+                <div className="flex items-center justify-between gap-2 group/branch">
                   <span className="text-gray-500 shrink-0">Base:</span>
-                  <span className="font-mono text-zinc-300 truncate" title={selectedPR.base_label || selectedPR.base_branch}>
-                    {selectedPR.base_label || selectedPR.base_branch}
-                  </span>
+                  <div className="flex items-center gap-1.5 truncate">
+                    <span 
+                      className="font-mono text-zinc-300 truncate" 
+                      title={selectedPR.base_label || selectedPR.base_branch}
+                    >
+                      {selectedPR.base_label || selectedPR.base_branch}
+                    </span>
+                    <button
+                      onClick={() => copyToClipboard(selectedPR.base_branch, setCopiedBase)}
+                      className="p-1 text-zinc-500 hover:text-zinc-300 hover:bg-zinc-800 rounded transition shrink-0"
+                      title="Copy Base Branch Name"
+                    >
+                      {copiedBase ? <Check size={11} className="text-green-500" /> : <Copy size={11} />}
+                    </button>
+                  </div>
                 </div>
-                <div className="flex justify-between gap-2">
+
+                <div className="flex justify-between gap-2 pt-1 border-t border-zinc-800/60">
                   <span className="text-gray-500 shrink-0">Status:</span>
                   <span className={`font-semibold capitalize ${selectedPR.state === 'open' ? 'text-green-500' : 'text-zinc-500'}`}>
                     {selectedPR.state}{selectedPR.is_draft && ' (Draft)'}
                   </span>
                 </div>
+              </div>
+            </div>
+
+            {/* Compare & Diff Actions */}
+            <div>
+              <h4 className="font-semibold text-gray-400 mb-1.5">Git Diff Tools</h4>
+              <div className="bg-[#0d1117] border border-zinc-800 rounded-lg p-2.5 flex gap-2">
+                <button
+                  onClick={handleViewDiff}
+                  className="flex-1 py-1.5 px-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded text-center transition flex items-center justify-center gap-1 font-medium hover:text-white"
+                >
+                  <Eye size={12} /> See Diff
+                </button>
+                <button
+                  onClick={handleCopyDiff}
+                  className="py-1.5 px-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded transition flex items-center justify-center gap-1 font-medium hover:text-white"
+                  title="Copy complete PR git diff"
+                >
+                  {copiedDiff ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                  Copy Diff
+                </button>
               </div>
             </div>
 
@@ -177,6 +290,67 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
             </button>
           </div>
         </>
+      )}
+
+      {/* GORGEOUS DIFF OVERLAY MODAL */}
+      {isDiffModalOpen && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center p-4 bg-black/70 backdrop-blur-sm select-none">
+          <div className="bg-[#161b22] border border-zinc-800 rounded-xl w-full max-w-5xl h-[85vh] flex flex-col overflow-hidden shadow-2xl relative">
+            
+            {/* Modal Header */}
+            <div className="flex items-center justify-between px-5 py-4 border-b border-zinc-800 bg-[#0d1117]/40">
+              <div>
+                <h3 className="text-sm font-bold text-gray-100 flex items-center gap-2">
+                  <span>Changes for PR #{selectedPR?.number}</span>
+                  <span className="px-1.5 py-0.5 rounded bg-zinc-800 text-[10px] font-mono text-zinc-400">
+                    {selectedPR?.base_branch} ➔ {selectedPR?.head_branch}
+                  </span>
+                </h3>
+                <p className="text-[10px] text-zinc-500 mt-0.5">
+                  Compared local base branch to PR branch ({selectedPR?.repo_name})
+                </p>
+              </div>
+              <div className="flex items-center gap-2">
+                <button
+                  onClick={() => copyToClipboard(diffText, setCopiedModalDiff)}
+                  disabled={isLoadingDiff || !diffText}
+                  className="px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-zinc-300 disabled:opacity-50 hover:text-white rounded border border-zinc-700 text-xs transition flex items-center gap-1.5"
+                >
+                  {copiedModalDiff ? <Check size={13} className="text-green-500" /> : <Copy size={13} />}
+                  <span>Copy Whole Diff</span>
+                </button>
+                <button
+                  onClick={() => setIsDiffModalOpen(false)}
+                  className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-white rounded transition"
+                  title="Close Diff"
+                >
+                  <X size={16} />
+                </button>
+              </div>
+            </div>
+
+            {/* Modal Body */}
+            <div className="flex-1 overflow-auto bg-[#0d1117] p-4 select-text">
+              {isLoadingDiff ? (
+                <div className="h-full w-full flex flex-col items-center justify-center gap-3 text-zinc-500">
+                  <RefreshCw size={24} className="animate-spin text-blue-500" />
+                  <span className="text-xs">Computing git diff comparison...</span>
+                </div>
+              ) : !diffText ? (
+                <div className="h-full w-full flex flex-col items-center justify-center gap-2 text-zinc-500">
+                  <CheckCircle2 size={32} className="text-green-500/80" />
+                  <span className="text-xs font-semibold text-zinc-400">No differences detected</span>
+                  <span className="text-[10px] text-zinc-600">The branches are currently identical.</span>
+                </div>
+              ) : (
+                <div className="font-mono text-xs leading-relaxed">
+                  {diffText.split('\n').map((line, idx) => formatDiffLine(line, idx))}
+                </div>
+              )}
+            </div>
+
+          </div>
+        </div>
       )}
     </div>
   );

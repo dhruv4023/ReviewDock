@@ -8,6 +8,8 @@ export function CancelRebase(arg1:string):Promise<void>;
 
 export function GetPRCIStatus(arg1:string,arg2:string):Promise<string>;
 
+export function GetPRDiff(arg1:string,arg2:string,arg3:string):Promise<string>;
+
 export function GetPullRequests():Promise<Array<models.PullRequest>>;
 
 export function GetRemotes(arg1:string):Promise<Array<string>>;

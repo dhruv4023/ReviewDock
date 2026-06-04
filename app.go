@@ -337,3 +337,17 @@ func (a *App) CancelRebase(jobID string) error {
 	}
 	return nil
 }
+
+// GetPRDiff returns the git diff output comparing baseLabel to headBranch in target repository.
+func (a *App) GetPRDiff(repoID string, baseLabel string, headBranch string) (string, error) {
+	repos, err := a.storage.ReadRepos()
+	if err != nil {
+		return "", err
+	}
+	for _, r := range repos {
+		if r.ID == repoID {
+			return a.gitExecutor.Diff(a.ctx, r.LocalPath, baseLabel, headBranch)
+		}
+	}
+	return "", fmt.Errorf("repository not found: %s", repoID)
+}

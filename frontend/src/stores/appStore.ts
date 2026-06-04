@@ -20,12 +20,16 @@ declare global {
           GetPRCIStatus(repoID: string, headRef: string): Promise<string>;
           GetRemotes(repoID: string): Promise<string[]>;
           SetBranchTracking(repoID: string, branch: string, remote: string): Promise<void>;
+          GetPRDiff(repoID: string, baseLabel: string, headBranch: string): Promise<string>;
         };
       };
     };
     runtime: {
       EventsOn(eventName: string, callback: (...args: any[]) => void): void;
       EventsOff(eventName: string): void;
+      BrowserOpenURL(url: string): void;
+      ClipboardSetText(text: string): Promise<boolean>;
+      ClipboardGetText(): Promise<string>;
     };
   }
 }

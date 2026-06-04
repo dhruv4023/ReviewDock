@@ -185,6 +185,23 @@ func (e *Executor) SetBranchTracking(ctx context.Context, dir string, branch str
 	return e.runCommand(ctx, dir, log, "branch", fmt.Sprintf("--set-upstream-to=%s/%s", remote, branch), branch)
 }
 
+// Diff returns the git diff output comparing the baseLabel to the headBranch.
+func (e *Executor) Diff(ctx context.Context, dir string, baseLabel string, headBranch string) (string, error) {
+	// Try three-dot diff (changes in head branch since it diverged from base)
+	cmd := exec.CommandContext(ctx, "git", "-C", dir, "diff", baseLabel+"..."+headBranch)
+	out, err := cmd.Output()
+	if err != nil {
+		// Fallback to two-dot diff
+		cmd2 := exec.CommandContext(ctx, "git", "-C", dir, "diff", baseLabel+".."+headBranch)
+		out2, err2 := cmd2.Output()
+		if err2 != nil {
+			return "", fmt.Errorf("failed to run git diff: %w", err)
+		}
+		return string(out2), nil
+	}
+	return string(out), nil
+}
+
 // LocalAheadBehind returns how many commits the local branch is ahead and behind
 // its remote tracking branch (remote/branch). Returns 0, 0, nil if the branch
 // does not exist locally or has no remote tracking ref — not treated as an error.

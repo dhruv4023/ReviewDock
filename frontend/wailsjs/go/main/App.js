@@ -14,6 +14,10 @@ export function GetPRCIStatus(arg1, arg2) {
   return window['go']['main']['App']['GetPRCIStatus'](arg1, arg2);
 }
 
+export function GetPRDiff(arg1, arg2, arg3) {
+  return window['go']['main']['App']['GetPRDiff'](arg1, arg2, arg3);
+}
+
 export function GetPullRequests() {
   return window['go']['main']['App']['GetPullRequests']();
 }
