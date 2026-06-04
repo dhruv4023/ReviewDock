@@ -116,6 +116,10 @@ func (m *Manager) worker(ctx context.Context) {
 }
 
 func (m *Manager) processRebase(ctx context.Context, job Job) error {
+	lock := m.gitExecutor.GetRepoLock(job.RepoPath)
+	lock.Lock()
+	defer lock.Unlock()
+
 	logger := func(msg string) {
 		m.log(fmt.Sprintf("[%s] %s", job.RepoName, msg))
 	}

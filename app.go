@@ -206,6 +206,11 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 		wg.Add(1)
 		go func(r models.Repository) {
 			defer wg.Done()
+
+			lock := a.gitExecutor.GetRepoLock(r.LocalPath)
+			lock.Lock()
+			defer lock.Unlock()
+
 			// a.queueManager.ProcessRemoteUpdate(a.ctx, r.LocalPath)
 			prs, err := a.ghClient.FetchPRs(a.ctx, r.Owner, r.Name, r.LocalPath)
 			if err != nil {
@@ -317,6 +322,10 @@ func (a *App) SetBranchTracking(repoID, branch, remote string) error {
 	}
 	for _, r := range repos {
 		if r.ID == repoID {
+			lock := a.gitExecutor.GetRepoLock(r.LocalPath)
+			lock.Lock()
+			defer lock.Unlock()
+
 			logCallback := func(msg string) {
 				wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf("[%s] %s", r.Owner+"/"+r.Name, msg))
 			}
@@ -346,6 +355,10 @@ func (a *App) GetPRDiff(repoID string, baseLabel string, headBranch string) (str
 	}
 	for _, r := range repos {
 		if r.ID == repoID {
+			lock := a.gitExecutor.GetRepoLock(r.LocalPath)
+			lock.Lock()
+			defer lock.Unlock()
+
 			return a.gitExecutor.Diff(a.ctx, r.LocalPath, baseLabel, headBranch)
 		}
 	}

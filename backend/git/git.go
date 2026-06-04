@@ -13,10 +13,27 @@ import (
 
 type LogWriter func(message string)
 
-type Executor struct{}
+type Executor struct {
+	locks   map[string]*sync.Mutex
+	locksMu sync.Mutex
+}
 
 func NewExecutor() *Executor {
-	return &Executor{}
+	return &Executor{
+		locks: make(map[string]*sync.Mutex),
+	}
+}
+
+func (e *Executor) GetRepoLock(repoPath string) *sync.Mutex {
+	e.locksMu.Lock()
+	defer e.locksMu.Unlock()
+
+	lock, exists := e.locks[repoPath]
+	if !exists {
+		lock = &sync.Mutex{}
+		e.locks[repoPath] = lock
+	}
+	return lock
 }
 
 func (e *Executor) CheckGitVersion(ctx context.Context) (string, error) {
