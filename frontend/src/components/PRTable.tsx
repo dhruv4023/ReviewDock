@@ -1,6 +1,7 @@
 import React, { useState, useMemo } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle } from 'lucide-react';
+import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle, Wifi } from 'lucide-react';
+import { RemoteSetupModal } from './RemoteSetupModal';
 
 export const PRTable: React.FC = () => {
   const { 
@@ -15,7 +16,9 @@ export const PRTable: React.FC = () => {
     selectedPR,
     rebaseSelected,
     settings,
-    setSettings
+    setSettings,
+    pendingRemoteSetup,
+    _processNextRemoteSetup,
   } = useAppStore();
 
   const [stateFilter, setStateFilter] = useState<'open' | 'draft' | 'closed' | 'all'>('all');
@@ -88,7 +91,19 @@ export const PRTable: React.FC = () => {
     deselectAllPRs();
   };
 
+  // Opens the remote-setup modal for a single PR directly (e.g. WiFi icon click).
+  const handleSetRemote = async (e: React.MouseEvent, pr: import('../stores/appStore').PullRequest) => {
+    e.stopPropagation();
+    await _processNextRemoteSetup([{
+      id: pr.id,
+      repo_id: pr.repo_id,
+      head_label: pr.head_label || pr.head_branch,
+      base_label: pr.base_label || pr.base_branch,
+    }]);
+  };
+
   return (
+    <>
     <div className="flex-1 flex flex-col h-full bg-[#0d1117] overflow-hidden">
       {/* Top action bar */}
       <div className="p-3 border-b border-zinc-800 bg-[#161b22] flex flex-wrap gap-3 items-center justify-between">
@@ -252,8 +267,19 @@ export const PRTable: React.FC = () => {
                       </span>
                     </td>
                     <td className="py-2.5 px-2 text-gray-450 truncate max-w-[100px]" title={pr.head_label || pr.head_branch}>
-                      <span className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700 text-[10px] text-zinc-300">
-                        {pr.head_label || pr.head_branch}
+                      <span className="inline-flex items-center gap-1">
+                        {!pr.head_label?.includes('/') && (
+                          <button
+                            title="No remote tracking — click to set"
+                            onClick={(e) => handleSetRemote(e, pr)}
+                            className="text-amber-400 hover:text-amber-300 hover:scale-110 transition-transform cursor-pointer"
+                          >
+                            <Wifi size={11} />
+                          </button>
+                        )}
+                        <span className="bg-zinc-800/80 px-1.5 py-0.5 rounded border border-zinc-700 text-[10px] text-zinc-300">
+                          {pr.head_label || pr.head_branch}
+                        </span>
                       </span>
                     </td>
                     <td className="py-2.5 px-2">
@@ -306,5 +332,8 @@ export const PRTable: React.FC = () => {
         )}
       </div>
     </div>
-  );
+
+    {/* Remote setup modal — shown when a selected PR's head branch lacks tracking */}
+    {pendingRemoteSetup && <RemoteSetupModal setup={pendingRemoteSetup} />}
+  </>);
 };

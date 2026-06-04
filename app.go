@@ -206,7 +206,7 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 		wg.Add(1)
 		go func(r models.Repository) {
 			defer wg.Done()
-			a.queueManager.ProcessRemoteUpdate(a.ctx, r.LocalPath)
+			// a.queueManager.ProcessRemoteUpdate(a.ctx, r.LocalPath)
 			prs, err := a.ghClient.FetchPRs(a.ctx, r.Owner, r.Name, r.LocalPath)
 			if err != nil {
 				errsChan <- fmt.Errorf("failed fetching for %s/%s: %w", r.Owner, r.Name, err)
@@ -291,6 +291,44 @@ func (a *App) RebasePRs(requests []models.RebaseRequest) error {
 	}
 
 	return nil
+}
+
+// GetRemotes returns the list of git remotes for the given repository.
+// The frontend uses this to populate the remote selection dialog.
+func (a *App) GetRemotes(repoID string) ([]string, error) {
+	repos, err := a.storage.ReadRepos()
+	if err != nil {
+		return nil, err
+	}
+	for _, r := range repos {
+		if r.ID == repoID {
+			return a.gitExecutor.ListRemotes(a.ctx, r.LocalPath)
+		}
+	}
+	return nil, fmt.Errorf("repository not found: %s", repoID)
+}
+
+// SetBranchTracking sets the upstream tracking remote for a local branch.
+// This is called from the frontend when the user picks a remote for an
+// untracked head branch before a rebase or force-push operation.
+func (a *App) SetBranchTracking(repoID, branch, remote string) error {
+	repos, err := a.storage.ReadRepos()
+	if err != nil {
+		return err
+	}
+	for _, r := range repos {
+		if r.ID == repoID {
+			logCallback := func(msg string) {
+				wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf("[%s] %s", r.Owner+"/"+r.Name, msg))
+			}
+			if err := a.gitExecutor.SetBranchTracking(a.ctx, r.LocalPath, branch, remote, logCallback); err != nil {
+				return fmt.Errorf("failed setting tracking for branch '%s' to remote '%s': %w", branch, remote, err)
+			}
+			logCallback(fmt.Sprintf("\u001b[32mBranch '%s' now tracking '%s/%s'\u001b[0m\r\n", branch, remote, branch))
+			return nil
+		}
+	}
+	return fmt.Errorf("repository not found: %s", repoID)
 }
 
 // CancelRebase cancels a queued or running job

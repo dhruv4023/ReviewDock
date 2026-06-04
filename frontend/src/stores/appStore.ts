@@ -18,6 +18,8 @@ declare global {
           RebasePRs(requests: RebaseRequest[]): Promise<void>;
           CancelRebase(jobID: string): Promise<void>;
           GetPRCIStatus(repoID: string, headRef: string): Promise<string>;
+          GetRemotes(repoID: string): Promise<string[]>;
+          SetBranchTracking(repoID: string, branch: string, remote: string): Promise<void>;
         };
       };
     };
@@ -89,6 +91,16 @@ export interface RebaseRequest {
   base_label: string;
 }
 
+// Represents a PR that needs a remote configured before its rebase job can be submitted.
+export interface PendingRemoteSetup {
+  /** The PR whose head branch has no remote tracking. */
+  pr: PullRequest;
+  /** Available remotes fetched from the backend. */
+  remotes: string[];
+  /** The full queue of rebase requests waiting to be submitted (includes this PR). */
+  pendingRequests: RebaseRequest[];
+}
+
 interface AppState {
   repos: Repository[];
   prs: PullRequest[];
@@ -99,7 +111,9 @@ interface AppState {
   isLoadingRepos: boolean;
   isLoadingPRs: boolean;
   oauthError: string | null;
-  
+  /** Set when a PR's head branch has no remote tracking; drives the RemoteSetupModal. */
+  pendingRemoteSetup: PendingRemoteSetup | null;
+
   // Actions
   init: () => Promise<void>;
   fetchRepos: () => Promise<void>;
@@ -115,6 +129,12 @@ interface AppState {
   deselectAllPRs: () => void;
   rebaseSelected: () => Promise<void>;
   cancelRebase: (jobID: string) => Promise<void>;
+  /** Called by RemoteSetupModal when the user picks a remote and confirms. */
+  confirmRemoteSetup: (remote: string) => Promise<void>;
+  /** Called by RemoteSetupModal when the user skips the current PR. */
+  skipRemoteSetup: () => Promise<void>;
+  /** @internal Walks pending requests, opens modal for the first untracked branch or submits all. */
+  _processNextRemoteSetup: (requests: RebaseRequest[]) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -127,6 +147,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isLoadingRepos: false,
   isLoadingPRs: false,
   oauthError: null,
+  pendingRemoteSetup: null,
 
   init: async () => {
     try {
@@ -245,6 +266,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     const { prs, selectedPRIds } = get();
     const targets = prs.filter(pr => selectedPRIds.includes(pr.id));
     if (targets.length === 0) return;
+
     const requests: RebaseRequest[] = targets.map(pr => ({
       id: pr.id,
       repo_id: pr.repo_id,
@@ -252,11 +274,89 @@ export const useAppStore = create<AppState>((set, get) => ({
       base_label: pr.base_label,
     }));
 
+    // Check each request for missing remote tracking.
+    // A head_label without "/" means GetUpstreamByBranch failed — no tracking configured.
+    await get()._processNextRemoteSetup(requests);
+  },
+
+  // Internal: walk the pending requests list; for the first one that lacks a remote,
+  // open the modal. Otherwise submit all to the backend.
+  _processNextRemoteSetup: async (requests: RebaseRequest[]) => {
+    const { prs } = get();
+
+    for (let i = 0; i < requests.length; i++) {
+      const req = requests[i];
+      if (!req.head_label.includes('/')) {
+        // No remote tracked — find the PR object and fetch available remotes
+        const pr = prs.find(p => p.id === req.id);
+        if (!pr) continue;
+        try {
+          const remotes = await window.go.main.App.GetRemotes(req.repo_id);
+          set({
+            pendingRemoteSetup: {
+              pr,
+              remotes: remotes || [],
+              pendingRequests: requests,
+            },
+          });
+          // Modal takes over from here; confirmRemoteSetup / skipRemoteSetup will continue.
+          return;
+        } catch (err) {
+          console.error('Failed fetching remotes for', pr.head_branch, err);
+          // Skip this PR and continue
+        }
+      }
+    }
+
+    // All requests have valid head_labels — submit the batch.
+    set({ pendingRemoteSetup: null });
     try {
       await window.go.main.App.RebasePRs(requests);
     } catch (err) {
       console.error('Rebase trigger failed', err);
     }
+  },
+
+  confirmRemoteSetup: async (remote: string) => {
+    const setup = get().pendingRemoteSetup;
+    if (!setup) return;
+
+    const { pr, pendingRequests } = setup;
+    try {
+      // Set tracking on the backend
+      await window.go.main.App.SetBranchTracking(pr.repo_id, pr.head_branch, remote);
+
+      // Update the head_label in the local prs list so the table reflects it
+      const updatedPRs = get().prs.map(p =>
+        p.id === pr.id
+          ? { ...p, head_label: `${remote}/${p.head_branch}` }
+          : p
+      );
+      set({ prs: updatedPRs });
+
+      // Update the head_label in the pending request list too
+      const updatedRequests = pendingRequests.map(req =>
+        req.id === pr.id
+          ? { ...req, head_label: `${remote}/${pr.head_branch}` }
+          : req
+      );
+
+      // Continue processing the (now-updated) queue
+      await get()._processNextRemoteSetup(updatedRequests);
+    } catch (err) {
+      console.error('SetBranchTracking failed', err);
+      set({ pendingRemoteSetup: null });
+    }
+  },
+
+  skipRemoteSetup: async () => {
+    const setup = get().pendingRemoteSetup;
+    if (!setup) return;
+
+    // Remove the skipped PR from the pending batch and continue
+    const { pr, pendingRequests } = setup;
+    const remaining = pendingRequests.filter(req => req.id !== pr.id);
+    await get()._processNextRemoteSetup(remaining);
   },
 
   cancelRebase: async (jobID) => {

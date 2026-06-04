@@ -10,6 +10,8 @@ export function GetPRCIStatus(arg1:string,arg2:string):Promise<string>;
 
 export function GetPullRequests():Promise<Array<models.PullRequest>>;
 
+export function GetRemotes(arg1:string):Promise<Array<string>>;
+
 export function GetRepositories():Promise<Array<models.Repository>>;
 
 export function GetSession():Promise<models.Session>;
@@ -25,3 +27,5 @@ export function RebasePRs(arg1:Array<models.RebaseRequest>):Promise<void>;
 export function RemoveRepository(arg1:string):Promise<void>;
 
 export function SaveSettings(arg1:models.Settings):Promise<void>;
+
+export function SetBranchTracking(arg1:string,arg2:string,arg3:string):Promise<void>;

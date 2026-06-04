@@ -160,6 +160,31 @@ func (e *Executor) DetectBestRemote(ctx context.Context, dir string, priorities 
 	return "origin", nil
 }
 
+// ListRemotes returns the names of all git remotes configured for the given repo directory.
+func (e *Executor) ListRemotes(ctx context.Context, dir string) ([]string, error) {
+	cmd := exec.CommandContext(ctx, "git", "remote")
+	cmd.Dir = dir
+	out, err := cmd.Output()
+	if err != nil {
+		return nil, fmt.Errorf("failed listing remotes: %w", err)
+	}
+	var remotes []string
+	for _, r := range strings.Split(strings.TrimSpace(string(out)), "\n") {
+		r = strings.TrimSpace(r)
+		if r != "" {
+			remotes = append(remotes, r)
+		}
+	}
+	return remotes, nil
+}
+
+// SetBranchTracking configures the upstream tracking reference for a local branch
+// by running: git branch --set-upstream-to=<remote>/<branch> <branch>
+// After this call, git push/pull will default to the specified remote.
+func (e *Executor) SetBranchTracking(ctx context.Context, dir string, branch string, remote string, log LogWriter) error {
+	return e.runCommand(ctx, dir, log, "branch", fmt.Sprintf("--set-upstream-to=%s/%s", remote, branch), branch)
+}
+
 // LocalAheadBehind returns how many commits the local branch is ahead and behind
 // its remote tracking branch (remote/branch). Returns 0, 0, nil if the branch
 // does not exist locally or has no remote tracking ref — not treated as an error.

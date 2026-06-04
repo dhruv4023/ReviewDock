@@ -14,12 +14,12 @@ import (
 type LogFunc func(message string)
 
 type Job struct {
-	ID         string // Unique identifier for the job (e.g. repoName-PRNumber)
-	RepoName   string
-	RepoPath   string
-	HeadLabel  string
-	BaseLabel  string
-	Options    models.Settings
+	ID        string // Unique identifier for the job (e.g. repoName-PRNumber)
+	RepoName  string
+	RepoPath  string
+	HeadLabel string
+	BaseLabel string
+	Options   models.Settings
 }
 
 type Manager struct {
@@ -139,7 +139,13 @@ func (m *Manager) processRebase(ctx context.Context, job Job) error {
 	// 3. Detect target Remote
 	parts := strings.Split(job.HeadLabel, "/")
 	if len(parts) != 2 {
-		headBranch = job.HeadLabel
+		// head_label has no remote prefix — the branch has no tracking remote configured.
+		// The frontend should have caught this and prompted the user to set one before
+		// submitting. Return a clear error so the terminal surfaces the fix.
+		return fmt.Errorf(
+			"head branch '%s' has no remote tracking configured — please select a remote for it in the UI before rebasing",
+			job.HeadLabel,
+		)
 	} else {
 		headBranchRemote = parts[0]
 		headBranch = parts[1]
@@ -176,10 +182,10 @@ func (m *Manager) processRebase(ctx context.Context, job Job) error {
 
 	// 7. Force push branch if enabled
 	if job.Options.ForcePushAfterRebase {
-		logger(fmt.Sprintf("Force pushing branch '%s' to remote '%s' using safe push lease...", job.HeadLabel, headBranchRemote))
-	// 	if err := m.gitExecutor.ForcePush(ctx, job.RepoPath, headBranchRemote, job.HeadLabel, logger); err != nil {
-	// 		return fmt.Errorf("force push failed: %w", err)
-	// 	}
+		logger(fmt.Sprintf("Force pushing branch '%s' to remote '%s' using safe push lease...", headBranch, headBranchRemote))
+		if err := m.gitExecutor.ForcePush(ctx, job.RepoPath, headBranchRemote, headBranch, logger); err != nil {
+			return fmt.Errorf("force push failed: %w", err)
+		}
 	}
 
 	return nil

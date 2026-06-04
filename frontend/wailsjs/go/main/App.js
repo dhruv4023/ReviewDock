@@ -18,6 +18,10 @@ export function GetPullRequests() {
   return window['go']['main']['App']['GetPullRequests']();
 }
 
+export function GetRemotes(arg1) {
+  return window['go']['main']['App']['GetRemotes'](arg1);
+}
+
 export function GetRepositories() {
   return window['go']['main']['App']['GetRepositories']();
 }
@@ -48,4 +52,8 @@ export function RemoveRepository(arg1) {
 
 export function SaveSettings(arg1) {
   return window['go']['main']['App']['SaveSettings'](arg1);
+}
+
+export function SetBranchTracking(arg1, arg2, arg3) {
+  return window['go']['main']['App']['SetBranchTracking'](arg1, arg2, arg3);
 }
