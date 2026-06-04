@@ -196,12 +196,12 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 	if err != nil {
 		return nil, err
 	}
-	
+
 	var allPRs []models.PullRequest
 	var wg sync.WaitGroup
 	var mu sync.Mutex
 	errsChan := make(chan error, len(repos))
-	
+
 	for _, repo := range repos {
 		wg.Add(1)
 		go func(r models.Repository) {
@@ -217,7 +217,6 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 			mu.Unlock()
 		}(repo)
 	}
-
 
 	wg.Wait()
 	close(errsChan)
@@ -279,12 +278,12 @@ func (a *App) RebasePRs(requests []models.RebaseRequest) error {
 		}
 		logger.Infof("%v | %v", req, repo)
 		job := queue.Job{
-			ID:         req.ID,
-			RepoName:   repo.Owner + "/" + repo.Name,
-			RepoPath:   repo.LocalPath,
-			HeadLabel:  req.HeadLabel,
-			BaseLabel:  req.BaseLabel,
-			Options:    *settings,
+			ID:        req.ID,
+			RepoName:  repo.Owner + "/" + repo.Name,
+			RepoPath:  repo.LocalPath,
+			HeadLabel: req.HeadLabel,
+			BaseLabel: req.BaseLabel,
+			Options:   *settings,
 		}
 
 		a.queueManager.Submit(job)

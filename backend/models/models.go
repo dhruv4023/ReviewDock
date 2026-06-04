@@ -12,24 +12,24 @@ type Repository struct {
 }
 
 type PullRequest struct {
-	ID              string    `json:"id"`
-	Number          int       `json:"number"`
-	Title           string    `json:"title"`
-	RepoID          string    `json:"repo_id"`
-	RepoName        string    `json:"repo_name"`
-	BaseBranch      string    `json:"base_branch"`
-	HeadBranch      string    `json:"head_branch"`
-	BaseLabel       string    `json:"base_label"`
-	HeadLabel       string    `json:"head_label"`
-	State           string    `json:"state"` // "open", "closed", "draft"
-	IsDraft         bool      `json:"is_draft"`
-	UpdatedAt       time.Time `json:"updated_at"`
+	ID               string    `json:"id"`
+	Number           int       `json:"number"`
+	Title            string    `json:"title"`
+	RepoID           string    `json:"repo_id"`
+	RepoName         string    `json:"repo_name"`
+	BaseBranch       string    `json:"base_branch"`
+	HeadBranch       string    `json:"head_branch"`
+	BaseLabel        string    `json:"base_label"`
+	HeadLabel        string    `json:"head_label"`
+	State            string    `json:"state"` // "open", "closed", "draft"
+	IsDraft          bool      `json:"is_draft"`
+	UpdatedAt        time.Time `json:"updated_at"`
 	LocalAheadCount  int       `json:"local_ahead_count"`  // local branch commits not on remote
 	LocalBehindCount int       `json:"local_behind_count"` // remote tracking commits not in local
-	MergeableStatus string    `json:"mergeable_status"` // "mergeable", "conflicting", "unknown"
-	HTMLURL         string    `json:"html_url"`
-	Description     string    `json:"description"`
-	CIStatus        string    `json:"ci_status"` // "success", "failure", "running", "none", "unknown"
+	MergeableStatus  string    `json:"mergeable_status"`   // "mergeable", "conflicting", "unknown"
+	HTMLURL          string    `json:"html_url"`
+	Description      string    `json:"description"`
+	CIStatus         string    `json:"ci_status"` // "success", "failure", "running", "none", "unknown"
 }
 
 type User struct {
@@ -56,8 +56,8 @@ type Settings struct {
 }
 
 type RebaseRequest struct {
-	ID         string `json:"id"` // PR ID or number
-	RepoID     string `json:"repo_id"`
-	HeadLabel  string `json:"head_label"`
-	BaseLabel  string `json:"base_label"`
+	ID        string `json:"id"` // PR ID or number
+	RepoID    string `json:"repo_id"`
+	HeadLabel string `json:"head_label"`
+	BaseLabel string `json:"base_label"`
 }

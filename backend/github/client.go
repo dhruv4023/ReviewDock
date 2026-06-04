@@ -5,6 +5,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"os/exec"
+	"sort"
 	"strings"
 	"time"
 
@@ -115,27 +116,31 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 		}
 
 		pr := models.PullRequest{
-			ID:              fmt.Sprintf("%s-%d", repoID, item.Number),
-			Number:          item.Number,
-			Title:           item.Title,
-			RepoID:          repoID,
-			RepoName:        repoName,
-			BaseBranch:      item.BaseRefName,
-			HeadBranch:      item.HeadRefName,
-			BaseLabel:       baseLabel,
-			HeadLabel:       headLabel,
-			State:           state,
-			IsDraft:         item.IsDraft,
-			UpdatedAt:       updatedAt,
-			MergeableStatus: mergeableStatus,
-			LocalAheadCount:      ahead,
-			LocalBehindCount:     behind,
-			HTMLURL:         item.URL,
-			Description:     item.Body,
+			ID:               fmt.Sprintf("%s-%d", repoID, item.Number),
+			Number:           item.Number,
+			Title:            item.Title,
+			RepoID:           repoID,
+			RepoName:         repoName,
+			BaseBranch:       item.BaseRefName,
+			HeadBranch:       item.HeadRefName,
+			BaseLabel:        baseLabel,
+			HeadLabel:        headLabel,
+			State:            state,
+			IsDraft:          item.IsDraft,
+			UpdatedAt:        updatedAt,
+			MergeableStatus:  mergeableStatus,
+			LocalAheadCount:  ahead,
+			LocalBehindCount: behind,
+			HTMLURL:          item.URL,
+			Description:      item.Body,
 		}
 
 		result = append(result, pr)
 	}
+
+	sort.Slice(result, func(i, j int) bool {
+		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+	})
 
 	return result, nil
 }

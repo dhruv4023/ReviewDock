@@ -1,8 +1,13 @@
 import React, { useState } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { FolderPlus, Trash2, GitBranch, RefreshCw, AlertCircle } from 'lucide-react';
+import { FolderPlus, Trash2, GitBranch, RefreshCw, AlertCircle, ChevronLeft, ChevronRight } from 'lucide-react';
 
-export const Sidebar: React.FC = () => {
+interface SidebarProps {
+  collapsed: boolean;
+  onToggleCollapse: () => void;
+}
+
+export const Sidebar: React.FC<SidebarProps> = ({ collapsed, onToggleCollapse }) => {
   const { repos, addRepo, removeRepo, fetchRepos, isLoadingRepos } = useAppStore();
   const [newPath, setNewPath] = useState('');
   const [isAdding, setIsAdding] = useState(false);
@@ -15,15 +20,51 @@ export const Sidebar: React.FC = () => {
       await addRepo(newPath.trim());
       setNewPath('');
       setIsAdding(false);
-    } catch (err) {
-      // alert inside store handles errors
-    }
+    } catch (_) {}
   };
 
-  const filteredRepos = repos.filter(r => 
-    r.name.toLowerCase().includes(search.toLowerCase()) || 
+  const filteredRepos = repos.filter(r =>
+    r.name.toLowerCase().includes(search.toLowerCase()) ||
     r.owner.toLowerCase().includes(search.toLowerCase())
   );
+
+  // Icon-only collapsed view
+  if (collapsed) {
+    return (
+      <aside className="w-12 bg-[#161b22] border-r border-zinc-800 flex flex-col h-full items-center py-2 gap-1">
+        {/* Expand button */}
+        <button
+          onClick={onToggleCollapse}
+          className="p-1.5 hover:bg-zinc-800 text-zinc-500 hover:text-gray-200 rounded transition mb-1"
+          title="Expand sidebar"
+        >
+          <ChevronRight size={14} />
+        </button>
+
+        {/* Repo icons — first char of owner */}
+        <div className="flex-1 w-full overflow-y-auto flex flex-col items-center gap-1 px-1">
+          {filteredRepos.map(repo => (
+            <div
+              key={repo.id}
+              title={`${repo.owner}/${repo.name}\n${repo.local_path}`}
+              className="w-8 h-8 rounded bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 flex items-center justify-center text-[11px] font-bold text-gray-300 uppercase cursor-default transition select-none"
+            >
+              {repo.owner.charAt(0)}
+            </div>
+          ))}
+        </div>
+
+        {/* Refresh */}
+        <button
+          onClick={fetchRepos}
+          className="p-1.5 hover:bg-zinc-800 rounded text-zinc-500 hover:text-gray-300 transition"
+          title="Refresh Repositories"
+        >
+          <RefreshCw size={12} className={isLoadingRepos ? 'animate-spin' : ''} />
+        </button>
+      </aside>
+    );
+  }
 
   return (
     <aside className="w-64 bg-[#161b22] border-r border-zinc-800 flex flex-col h-full">
@@ -31,13 +72,22 @@ export const Sidebar: React.FC = () => {
         <h2 className="text-sm font-semibold tracking-wider text-gray-400 uppercase flex items-center gap-2">
           <GitBranch size={16} /> Repositories
         </h2>
-        <button
-          onClick={() => setIsAdding(!isAdding)}
-          className="p-1 hover:bg-zinc-800 text-blue-500 rounded transition action-btn"
-          title="Add Repository"
-        >
-          <FolderPlus size={18} />
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={() => setIsAdding(!isAdding)}
+            className="p-1 hover:bg-zinc-800 text-blue-500 rounded transition"
+            title="Add Repository"
+          >
+            <FolderPlus size={16} />
+          </button>
+          <button
+            onClick={onToggleCollapse}
+            className="p-1 hover:bg-zinc-800 text-zinc-500 hover:text-gray-200 rounded transition"
+            title="Collapse sidebar"
+          >
+            <ChevronLeft size={14} />
+          </button>
+        </div>
       </div>
 
       {isAdding && (
@@ -54,13 +104,13 @@ export const Sidebar: React.FC = () => {
             <button
               type="button"
               onClick={() => setIsAdding(false)}
-              className="px-2 py-1 bg-zinc-800 text-xs rounded hover:bg-zinc-700 action-btn"
+              className="px-2 py-1 bg-zinc-800 text-xs rounded hover:bg-zinc-700"
             >
               Cancel
             </button>
             <button
               type="submit"
-              className="px-2 py-1 bg-blue-600 text-xs rounded hover:bg-blue-500 text-white font-medium action-btn"
+              className="px-2 py-1 bg-blue-600 text-xs rounded hover:bg-blue-500 text-white font-medium"
             >
               Add
             </button>

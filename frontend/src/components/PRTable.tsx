@@ -3,7 +3,13 @@ import { useAppStore } from '../stores/appStore';
 import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle, Wifi } from 'lucide-react';
 import { RemoteSetupModal } from './RemoteSetupModal';
 
-export const PRTable: React.FC = () => {
+import { PullRequest } from '../stores/appStore';
+
+interface PRTableProps {
+  onRowClick: (pr: PullRequest) => void;
+}
+
+export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
   const { 
     prs, 
     fetchPRs, 
@@ -12,7 +18,6 @@ export const PRTable: React.FC = () => {
     toggleSelectPR, 
     selectAllPRs, 
     deselectAllPRs,
-    setSelectedPR,
     selectedPR,
     rebaseSelected,
     settings,
@@ -252,7 +257,6 @@ export const PRTable: React.FC = () => {
                 <th className="py-2.5 px-2 w-20">Merge Status</th>
                 <th className="py-2.5 px-2 w-16 text-center">Behind</th>
                 <th className="py-2.5 px-2 w-16 text-center">Ahead</th>
-                <th className="py-2.5 px-2 w-24 text-center">Local Sync</th>
                 <th className="py-2.5 px-3 w-28 text-right">Updated</th>
               </tr>
             </thead>
@@ -264,7 +268,7 @@ export const PRTable: React.FC = () => {
                 return (
                   <tr
                     key={pr.id}
-                    onClick={() => setSelectedPR(pr)}
+                    onClick={() => onRowClick(pr)}
                     className={`hover:bg-zinc-800/40 transition cursor-pointer select-none ${
                       isCurrent ? 'bg-zinc-800/50 border-l-2 border-blue-500' : ''
                     } ${isSelected ? 'bg-blue-900/10' : ''}`}
@@ -322,26 +326,16 @@ export const PRTable: React.FC = () => {
                     </td>
                     <td className="py-2.5 px-2 text-center">
                       <span className={`px-1 py-0.5 rounded text-[10px] ${
-                        pr.behind_count > 0 ? 'bg-amber-950/40 text-amber-400' : 'text-zinc-500'
+                        pr.local_ahead_count > 0 ? 'bg-amber-950/40 text-amber-400' : 'text-zinc-500'
                       }`}>
-                        {pr.behind_count}
+                        {pr.local_ahead_count}
                       </span>
                     </td>
                     <td className="py-2.5 px-2 text-center">
                       <span className={`px-1 py-0.5 rounded text-[10px] ${
-                        pr.ahead_count > 0 ? 'bg-blue-950/40 text-blue-400' : 'text-zinc-500'
+                        pr.local_behind_count > 0 ? 'bg-blue-950/40 text-blue-400' : 'text-zinc-500'
                       }`}>
-                        {pr.ahead_count}
-                      </span>
-                    </td>
-                    <td className="py-2.5 px-2 text-center">
-                      <span className={`inline-flex items-center gap-1 font-mono text-[10px] ${
-                        (pr.local_ahead_count > 0 || pr.local_behind_count > 0)
-                          ? 'text-amber-400'
-                          : 'text-zinc-600'
-                      }`}>
-                        <span title="Local commits not on remote">↑{pr.local_ahead_count}</span>
-                        <span title="Remote commits not in local">↓{pr.local_behind_count}</span>
+                        {pr.local_behind_count}
                       </span>
                     </td>
                     <td className="py-2.5 px-3 text-right text-gray-500 text-[10px]">
