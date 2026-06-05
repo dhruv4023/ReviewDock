@@ -4,7 +4,7 @@ import { Sidebar } from './components/Sidebar';
 import { PRTable } from './components/PRTable';
 import { DetailsPanel } from './components/DetailsPanel';
 import { TerminalPanel } from './components/TerminalPanel';
-import { Github, LogOut, AlertTriangle, RefreshCw, PanelRight } from 'lucide-react';
+import { Github, LogOut, AlertTriangle, RefreshCw, PanelRight, Copy, ExternalLink, Check } from 'lucide-react';
 
 const DETAILS_MIN = 260;
 const DETAILS_MAX = 600;
@@ -36,8 +36,9 @@ function lsSet(key: string, value: unknown) {
 }
 
 export const App: React.FC = () => {
-  const { session, init, login, logout, oauthError, setSelectedPR } = useAppStore();
+  const { session, init, login, logout, oauthError, setSelectedPR, isCheckingSession, deviceCode, deviceUrl } = useAppStore();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
+  const [copiedCode, setCopiedCode] = useState(false);
 
   // Panel layout state — initialised from localStorage so they survive restarts
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
@@ -65,11 +66,23 @@ export const App: React.FC = () => {
     await login();
   };
 
+  const handleCopyCode = (code: string) => {
+    if (window.runtime && window.runtime.ClipboardSetText) {
+      window.runtime.ClipboardSetText(code);
+    } else {
+      navigator.clipboard.writeText(code);
+    }
+    setCopiedCode(true);
+    setTimeout(() => setCopiedCode(false), 1500);
+  };
+
   useEffect(() => {
     if (oauthError) setIsLoggingIn(false);
   }, [oauthError]);
 
   useEffect(() => { init(); }, []);
+
+
 
   // ── Details panel resize ────────────────────────────────────────────────────
   const onDetailsResizeStart = useCallback((e: React.MouseEvent) => {
@@ -123,6 +136,15 @@ export const App: React.FC = () => {
   }, []);
 
   // ── Login screen ────────────────────────────────────────────────────────────
+  if (isCheckingSession) {
+    return (
+      <div className="h-screen w-screen flex flex-col justify-center items-center bg-[#0d1117] text-zinc-400 select-none">
+        <RefreshCw size={28} className="animate-spin text-blue-500 mb-2.5" />
+        <span className="text-xs">Checking GitHub session...</span>
+      </div>
+    );
+  }
+
   if (!session) {
     return (
       <div className="h-screen w-screen flex flex-col justify-center items-center bg-[#0d1117] text-gray-150 relative overflow-hidden select-none font-sans">
@@ -139,28 +161,77 @@ export const App: React.FC = () => {
           </p>
 
           {isLoggingIn ? (
-            <div className="w-full flex flex-col items-center gap-3 py-2">
-              <RefreshCw size={20} className="animate-spin text-blue-400" />
-              <p className="text-xs text-gray-400 text-center">
-                A browser window has opened. Complete authorization on GitHub, then return here.
-              </p>
-            </div>
+            deviceCode ? (
+              <div className="w-full space-y-5">
+                <div className="p-4 bg-zinc-900/40 border border-zinc-800 rounded-lg flex flex-col items-center gap-2.5">
+                  <span className="text-[10px] uppercase font-semibold tracking-wider text-zinc-500 select-none">
+                    One-Time Activation Code
+                  </span>
+                  <div className="flex items-center gap-3">
+                    <span className="text-2xl font-mono font-bold tracking-widest text-white select-all">
+                      {deviceCode}
+                    </span>
+                    <button
+                      onClick={() => handleCopyCode(deviceCode)}
+                      className="p-1.5 hover:bg-zinc-800 rounded text-zinc-400 hover:text-zinc-200 transition cursor-pointer flex items-center justify-center"
+                      title="Copy Code"
+                    >
+                      {copiedCode ? <Check size={14} className="text-green-500" /> : <Copy size={14} />}
+                    </button>
+                  </div>
+                </div>
+
+                <div className="space-y-2.5 text-center">
+                  <p className="text-xs text-zinc-400 leading-normal">
+                    Copy the code above, click the link below, and paste the code to authorize this application:
+                  </p>
+                  <a
+                    href={deviceUrl || "https://github.com/login/device"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={(e) => {
+                      if (window.runtime && window.runtime.BrowserOpenURL) {
+                        e.preventDefault();
+                        window.runtime.BrowserOpenURL(deviceUrl || "https://github.com/login/device");
+                      }
+                    }}
+                    className="inline-flex items-center gap-1.5 text-xs text-blue-400 hover:text-blue-300 font-semibold underline underline-offset-4 cursor-pointer"
+                  >
+                    {deviceUrl || "github.com/login/device"} <ExternalLink size={12} />
+                  </a>
+                </div>
+
+                <div className="pt-2 flex items-center justify-center gap-2 text-[10px] text-zinc-500 select-none">
+                  <RefreshCw size={11} className="animate-spin text-blue-500" />
+                  <span>Waiting for GitHub CLI activation...</span>
+                </div>
+              </div>
+            ) : (
+              <div className="w-full flex flex-col items-center gap-3 py-4">
+                <RefreshCw size={20} className="animate-spin text-blue-400" />
+                <p className="text-xs text-zinc-400 text-center">
+                  Requesting one-time device code...
+                </p>
+              </div>
+            )
           ) : (
-            <div className="w-full space-y-3">
+            <div className="w-full space-y-4">
               {oauthError && (
                 <div className="p-2.5 bg-red-950/20 border border-red-800 rounded flex items-start gap-2 text-red-400 text-[11px] leading-snug">
                   <AlertTriangle size={14} className="shrink-0 mt-0.5" />
                   <span>{oauthError}</span>
                 </div>
               )}
+              
               <button
                 onClick={handleLogin}
-                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20"
+                className="w-full py-2.5 bg-blue-600 hover:bg-blue-500 text-white rounded-lg font-semibold text-xs transition flex items-center justify-center gap-2 shadow-lg shadow-blue-900/20 cursor-pointer"
               >
-                <Github size={16} /> Sign in with GitHub
+                <Github size={16} /> Sign in with GitHub CLI
               </button>
-              <p className="text-[10px] text-gray-600 text-center">
-                Opens browser via <code className="text-gray-500">gh auth login</code>
+              
+              <p className="text-[10px] text-zinc-500 text-center leading-normal">
+                Uses standard <code className="text-zinc-400">gh auth login</code> device activation. No browser is opened automatically.
               </p>
             </div>
           )}

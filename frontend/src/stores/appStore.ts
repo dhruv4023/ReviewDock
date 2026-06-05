@@ -114,6 +114,9 @@ interface AppState {
   settings: Settings | null;
   selectedPR: PullRequest | null;
   selectedPRIds: string[];
+  isCheckingSession: boolean;
+  deviceCode: string | null;
+  deviceUrl: string | null;
   isLoadingRepos: boolean;
   isLoadingPRs: boolean;
   oauthError: string | null;
@@ -150,6 +153,9 @@ export const useAppStore = create<AppState>((set, get) => ({
   settings: null,
   selectedPR: null,
   selectedPRIds: [],
+  isCheckingSession: true,
+  deviceCode: null,
+  deviceUrl: null,
   isLoadingRepos: false,
   isLoadingPRs: false,
   oauthError: null,
@@ -157,9 +163,17 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   init: async () => {
     try {
+      set({ isCheckingSession: true });
+      
+      if (!window.go || !window.go.main || !window.go.main.App) {
+        console.warn('Wails bindings not found. Running in browser/mock mode.');
+        set({ isCheckingSession: false });
+        return;
+      }
+
       const session = await window.go.main.App.GetSession();
       const settings = await window.go.main.App.GetSettings();
-      set({ session, settings });
+      set({ session, settings, isCheckingSession: false });
 
       if (session) {
         await get().fetchRepos();
@@ -167,18 +181,25 @@ export const useAppStore = create<AppState>((set, get) => ({
       }
 
       // Hook up OAuth Wails runtime events
-      window.runtime.EventsOn('oauth:success', (session: Session) => {
-        set({ session, oauthError: null });
-        get().fetchRepos();
-        get().fetchPRs();
-      });
+      if (window.runtime) {
+        window.runtime.EventsOn('oauth:success', (session: Session) => {
+          set({ session, oauthError: null, deviceCode: null, deviceUrl: null });
+          get().fetchRepos();
+          get().fetchPRs();
+        });
 
-      window.runtime.EventsOn('oauth:error', (errorMsg: string) => {
-        set({ oauthError: errorMsg });
-      });
+        window.runtime.EventsOn('oauth:error', (errorMsg: string) => {
+          set({ oauthError: errorMsg, deviceCode: null, deviceUrl: null });
+        });
+
+        window.runtime.EventsOn('oauth:device_code', (data: { code: string; url: string }) => {
+          set({ deviceCode: data.code, deviceUrl: data.url });
+        });
+      }
 
     } catch (err) {
       console.error('Failed initialization', err);
+      set({ isCheckingSession: false });
     }
   },
 
@@ -226,7 +247,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
   login: async () => {
     try {
-      set({ oauthError: null });
+      set({ oauthError: null, deviceCode: null, deviceUrl: null });
       await window.go.main.App.LoginGitHub();
     } catch (err) {
       set({ oauthError: String(err) });
@@ -236,7 +257,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   logout: async () => {
     try {
       await window.go.main.App.Logout();
-      set({ session: null, prs: [], repos: [], selectedPRIds: [], selectedPR: null });
+      set({ session: null, prs: [], repos: [], selectedPRIds: [], selectedPR: null, deviceCode: null, deviceUrl: null });
     } catch (err) {
       console.error('Logout error', err);
     }
