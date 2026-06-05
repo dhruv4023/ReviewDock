@@ -146,7 +146,7 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 	}
 
 	sort.Slice(result, func(i, j int) bool {
-		return result[i].UpdatedAt.After(result[j].UpdatedAt)
+		return result[i].AheadCount > result[j].AheadCount
 	})
 
 	return result, nil
