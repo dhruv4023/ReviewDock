@@ -24,9 +24,9 @@ jobs:
             platform:  'linux/amd64'
             os: 'ubuntu-latest'
 
-          - name: 'review-dock-win64'
-            platform:  'windows/amd64'
-            os: 'windows-latest'
+          # - name: 'review-dock-win64'
+          #   platform:  'windows/amd64'
+          #   os: 'windows-latest'
 
     runs-on: ${{ matrix.build.os }}
     steps:

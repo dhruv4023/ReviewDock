@@ -164,10 +164,32 @@ func (a *App) Logout() error {
 	return github.Logout(a.ctx)
 }
 
-// LoginGitHub initiates the GitHub OAuth flow via gh auth login
+// LoginGitHub initiates the GitHub authentication flow via gh auth login
 func (a *App) LoginGitHub() error {
 	go func() {
-		if err := github.Login(context.Background()); err != nil {
+		codeChan := make(chan string, 1)
+		urlChan := make(chan string, 1)
+
+		go func() {
+			var code, url string
+			select {
+			case code = <-codeChan:
+				select {
+				case url = <-urlChan:
+				default:
+					url = "https://github.com/login/device"
+				}
+			case <-a.ctx.Done():
+				return
+			}
+
+			wails.EventsEmit(a.ctx, "oauth:device_code", map[string]string{
+				"code": code,
+				"url":  url,
+			})
+		}()
+
+		if err := github.Login(a.ctx, codeChan, urlChan); err != nil {
 			wails.EventsEmit(a.ctx, "oauth:error", err.Error())
 			return
 		}

@@ -1,11 +1,15 @@
 package github
 
 import (
+	"bufio"
 	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"os/exec"
+	"regexp"
 	"strings"
+	"sync"
 
 	"my-github-pr/backend/models"
 )
@@ -42,15 +46,77 @@ func GetSession(ctx context.Context) (*models.Session, error) {
 }
 
 // Login initiates the GitHub authentication flow via gh auth login.
-// It opens the system browser automatically for OAuth.
-func Login(ctx context.Context) error {
+// It parses the one-time code and url, sending them back through the channels.
+func Login(ctx context.Context, codeChan chan<- string, urlChan chan<- string) error {
 	cmd := exec.CommandContext(ctx, "gh", "auth", "login",
 		"--hostname", "github.com",
 		"--git-protocol", "https",
-		"--web",
 	)
-	if out, err := cmd.CombinedOutput(); err != nil {
-		return fmt.Errorf("gh auth login: %s", strings.TrimSpace(string(out)))
+
+	stdinPipe, err := cmd.StdinPipe()
+	if err != nil {
+		return err
+	}
+	defer stdinPipe.Close()
+
+	stdoutPipe, err := cmd.StdoutPipe()
+	if err != nil {
+		return err
+	}
+	stderrPipe, err := cmd.StderrPipe()
+	if err != nil {
+		return err
+	}
+
+	if err := cmd.Start(); err != nil {
+		return err
+	}
+
+	// Write newline to stdin to trigger non-interactive mode
+	_, _ = stdinPipe.Write([]byte("\n"))
+	stdinPipe.Close()
+
+	var wg sync.WaitGroup
+	parseOutput := func(r io.Reader) {
+		scanner := bufio.NewScanner(r)
+		// Match "one-time code: 1234-5678"
+		codeRegex := regexp.MustCompile(`one-time code:\s*([A-Z0-9\-]+)`)
+		// Match "https://github.com/login/device"
+		urlRegex := regexp.MustCompile(`https://github.com/login/device`)
+
+		for scanner.Scan() {
+			line := scanner.Text()
+			if matches := codeRegex.FindStringSubmatch(line); len(matches) > 1 {
+				select {
+				case codeChan <- matches[1]:
+				case <-ctx.Done():
+					return
+				}
+			}
+			if urlRegex.MatchString(line) {
+				select {
+				case urlChan <- "https://github.com/login/device":
+				case <-ctx.Done():
+					return
+				}
+			}
+		}
+	}
+
+	wg.Add(2)
+	go func() {
+		defer wg.Done()
+		parseOutput(stdoutPipe)
+	}()
+	go func() {
+		defer wg.Done()
+		parseOutput(stderrPipe)
+	}()
+
+	wg.Wait()
+
+	if err := cmd.Wait(); err != nil {
+		return fmt.Errorf("gh auth login: %w", err)
 	}
 	return nil
 }
