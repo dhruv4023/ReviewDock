@@ -1,0 +1,48 @@
+name: Wails build
+
+on:
+  push:
+    tags:
+      # Match any new tag
+      - '*'
+
+env:
+  # Necessary for most environments as build failure can occur due to OOM issues
+  NODE_OPTIONS: "--max-old-space-size=4096"
+
+permissions:
+    contents: write
+
+jobs:
+  build:
+    strategy:
+
+      fail-fast: false
+      matrix:
+        build:
+          - name: 'review-dock-linux64'
+            platform:  'linux/amd64'
+            os: 'ubuntu-latest'
+
+          - name: 'review-dock-win64'
+            platform:  'windows/amd64'
+            os: 'windows-latest'
+
+    runs-on: ${{ matrix.build.os }}
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v2
+        with:
+          submodules: recursive
+
+      - name: Build wails
+        uses: ./.github/actions
+        id: build
+        with:
+          build-name: ${{ matrix.build.name }}
+          build-platform: ${{ matrix.build.platform }}
+          macos-app-name: ${{ matrix.build.macos-app-name }}
+          package: true
+          go-version: '1.26.0'
+          node-version: '22.20.0'
+          token: ${{ secrets.GITHUB_TOKEN }}

@@ -1,4 +1,4 @@
-import React, { useState, useMemo } from 'react';
+import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/appStore';
 import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle, Wifi, GitBranch } from 'lucide-react';
 import { RemoteSetupModal } from './RemoteSetupModal';
@@ -35,6 +35,57 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
     const saved = localStorage.getItem('groupByBranch');
     return saved !== null ? saved === 'true' : true;
   });
+
+  const searchInputRef = useRef<HTMLInputElement>(null);
+
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      const activeEl = document.activeElement;
+
+      // If typing in any input/textarea/editable element, ignore unless it's Esc inside search input
+      if (
+        activeEl &&
+        (activeEl.tagName === 'INPUT' ||
+          activeEl.tagName === 'TEXTAREA' ||
+          activeEl.getAttribute('contenteditable') === 'true')
+      ) {
+        if (e.key === 'Escape' && activeEl === searchInputRef.current) {
+          setSearch('');
+          searchInputRef.current.blur();
+          e.preventDefault();
+        }
+        return;
+      }
+
+      // Ignore modifier keys
+      if (e.metaKey || e.ctrlKey || e.altKey) {
+        return;
+      }
+
+      // Match letter keys a-z / A-Z
+      if (/^[a-zA-Z]$/.test(e.key)) {
+        if (searchInputRef.current) {
+          searchInputRef.current.focus();
+          setSearch((prev) => {
+            const nextVal = prev + e.key;
+            setTimeout(() => {
+              if (searchInputRef.current) {
+                const len = searchInputRef.current.value.length;
+                searchInputRef.current.setSelectionRange(len, len);
+              }
+            }, 0);
+            return nextVal;
+          });
+          e.preventDefault();
+        }
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => {
+      window.removeEventListener('keydown', handleKeyDown);
+    };
+  }, []);
 
   const handleToggleGroupByBranch = (val: boolean) => {
     setGroupByBranch(val);
@@ -294,6 +345,7 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
         <div className="flex items-center gap-2">
           <Search size={14} className="text-gray-500" />
           <input
+            ref={searchInputRef}
             type="text"
             value={search}
             onChange={(e) => setSearch(e.target.value)}
