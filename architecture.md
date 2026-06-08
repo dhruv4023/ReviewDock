@@ -443,7 +443,7 @@ func (a *App) RemoveRepository(id string) error
 func (a *App) LoginGitHub() error
 
 // GetPullRequests fetches PRs for all tracked repos authored by the user
-func (a *App) GetPullRequests() ([]models.PullRequest, error)
+func (a *App) GetPullRequests(remoteUpdate bool) ([]models.PullRequest, error)
 
 // RebasePRs submits selected PR jobs to the queue
 func (a *App) RebasePRs(jobRequests []models.RebaseRequest) error

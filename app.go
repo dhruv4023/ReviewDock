@@ -207,7 +207,7 @@ func (a *App) LoginGitHub() error {
 }
 
 // GetPullRequests aggregates active PRs for all repositories
-func (a *App) GetPullRequests() ([]models.PullRequest, error) {
+func (a *App) GetPullRequests(remoteUpdate bool) ([]models.PullRequest, error) {
 	// Verify gh is authenticated before making any calls
 	session, err := github.GetSession(a.ctx)
 	if err != nil || session == nil {
@@ -232,8 +232,9 @@ func (a *App) GetPullRequests() ([]models.PullRequest, error) {
 			lock := a.gitExecutor.GetRepoLock(r.LocalPath)
 			lock.Lock()
 			defer lock.Unlock()
-
-			// a.queueManager.ProcessRemoteUpdate(a.ctx, r.LocalPath)
+			if remoteUpdate {
+				a.queueManager.ProcessRemoteUpdate(a.ctx, r.LocalPath)
+			}
 			prs, err := a.ghClient.FetchPRs(a.ctx, r.Owner, r.Name, r.LocalPath)
 			if err != nil {
 				errsChan <- fmt.Errorf("failed fetching for %s/%s: %w", r.Owner, r.Name, err)

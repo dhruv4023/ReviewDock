@@ -331,13 +331,20 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
             </span>
           )}
         </div>
-
-        <button
-          onClick={fetchPRs}
-          className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-gray-300 rounded text-xs font-medium action-btn"
-        >
-          <RefreshCw size={13} className={isLoadingPRs ? 'animate-spin' : ''} /> Refresh PRs
-        </button>
+        <div className="flex gap-2 items-center">
+          <button
+            onClick={() => fetchPRs(true)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-zinc-800 hover:bg-zinc-700 text-gray-300 rounded text-xs font-medium action-btn"
+            >
+            <RefreshCw size={13} className={isLoadingPRs ? 'animate-spin' : ''} /> Refresh PRs & Remotes
+          </button>
+          <button
+            onClick={() => fetchPRs(false)}
+            className="flex items-center gap-1.5 px-2.5 py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-medium action-btn"
+            >
+            <RefreshCw size={13} className={isLoadingPRs ? 'animate-spin' : ''} /> Refresh PRs
+          </button>
+        </div>
       </div>
 
       {/* Filter controls */}

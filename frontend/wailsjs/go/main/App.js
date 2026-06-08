@@ -18,8 +18,8 @@ export function GetPRDiff(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetPRDiff'](arg1, arg2, arg3);
 }
 
-export function GetPullRequests() {
-  return window['go']['main']['App']['GetPullRequests']();
+export function GetPullRequests(arg1) {
+  return window['go']['main']['App']['GetPullRequests'](arg1);
 }
 
 export function GetRemotes(arg1) {

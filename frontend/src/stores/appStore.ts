@@ -14,7 +14,7 @@ declare global {
           GetSession(): Promise<Session | null>;
           Logout(): Promise<void>;
           LoginGitHub(): Promise<void>;
-          GetPullRequests(): Promise<PullRequest[]>;
+          GetPullRequests(remoteUpdate: boolean): Promise<PullRequest[]>;
           RebasePRs(requests: RebaseRequest[]): Promise<void>;
           CancelRebase(jobID: string): Promise<void>;
           GetPRCIStatus(repoID: string, headRef: string): Promise<string>;
@@ -130,7 +130,7 @@ interface AppState {
   fetchRepos: () => Promise<void>;
   addRepo: (path: string) => Promise<void>;
   removeRepo: (id: string) => Promise<void>;
-  fetchPRs: () => Promise<void>;
+  fetchPRs: (remoteUpdate?: boolean) => Promise<void>;
   login: () => Promise<void>;
   logout: () => Promise<void>;
   setSettings: (settings: Settings) => Promise<void>;
@@ -187,7 +187,7 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (session) {
         await get().fetchRepos();
-        await get().fetchPRs();
+        await get().fetchPRs(true);
       }
 
       // Hook up OAuth Wails runtime events
@@ -243,11 +243,11 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  fetchPRs: async () => {
+  fetchPRs: async (remoteUpdate: boolean = false) => {
     if (!get().session) return;
     set({ isLoadingPRs: true });
     try {
-      const prs = await window.go.main.App.GetPullRequests();
+      const prs = await window.go.main.App.GetPullRequests(remoteUpdate);
       set({ prs: prs || [], isLoadingPRs: false });
     } catch (err) {
       console.error('Error fetching pull requests', err);
