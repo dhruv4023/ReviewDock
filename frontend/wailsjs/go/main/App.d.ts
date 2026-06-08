@@ -16,6 +16,8 @@ export function GetRemotes(arg1:string):Promise<Array<string>>;
 
 export function GetRepositories():Promise<Array<models.Repository>>;
 
+export function GetReviewTemplate():Promise<string>;
+
 export function GetSession():Promise<models.Session>;
 
 export function GetSettings():Promise<models.Settings>;
@@ -27,6 +29,8 @@ export function Logout():Promise<void>;
 export function RebasePRs(arg1:Array<models.RebaseRequest>):Promise<void>;
 
 export function RemoveRepository(arg1:string):Promise<void>;
+
+export function SaveReviewTemplate(arg1:string):Promise<void>;
 
 export function SaveSettings(arg1:models.Settings):Promise<void>;
 

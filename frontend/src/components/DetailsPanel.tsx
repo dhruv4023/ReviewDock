@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X, Copy, Check, Eye } from 'lucide-react';
+import { ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X, Copy, Check, Eye, Bot } from 'lucide-react';
 
 interface DetailsPanelProps {
   /** Current panel width in px. Controlled by App.tsx drag logic. */
@@ -11,7 +11,7 @@ interface DetailsPanelProps {
 }
 
 export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onResizeStart }) => {
-  const { selectedPR, settings, setSettings, rebaseSelected, toggleSelectPR, selectedPRIds } = useAppStore();
+  const { selectedPR, settings, setSettings, rebaseSelected, toggleSelectPR, selectedPRIds, reviewTemplate } = useAppStore();
   const [ciStatus, setCiStatus] = useState<string>('loading');
   const [isRefreshingCi, setIsRefreshingCi] = useState(false);
 
@@ -20,6 +20,8 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
   const [copiedBase, setCopiedBase] = useState(false);
   const [copiedDiff, setCopiedDiff] = useState(false);
   const [copiedModalDiff, setCopiedModalDiff] = useState(false);
+  const [copiedReviewPrompt, setCopiedReviewPrompt] = useState(false);
+  const [isGeneratingPrompt, setIsGeneratingPrompt] = useState(false);
 
   // States for Diff Modal
   const [isDiffModalOpen, setIsDiffModalOpen] = useState(false);
@@ -89,6 +91,46 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
       copyToClipboard(diff || "No changes / Empty diff", setCopiedDiff);
     } catch (err) {
       alert(`Failed to fetch and copy diff: ${err}`);
+    }
+  };
+
+  const DEFAULT_TEMPLATE = `You are an expert code reviewer. Please review the following pull request carefully.
+
+## Instructions
+- Identify bugs, security issues, and logic errors.
+- Suggest improvements to code clarity and maintainability.
+- Check for missing tests or documentation.
+- Be concise and prioritize critical issues.
+- Note any positive aspects of the implementation.
+
+## PR Title
+{{PR_TITLE}}
+
+## PR Description
+{{PR_DESCRIPTION}}
+
+## Code Changes
+{{PR_DIFF}}`;
+
+  const handleCopyReviewPrompt = async () => {
+    if (!selectedPR || isGeneratingPrompt) return;
+    setIsGeneratingPrompt(true);
+    try {
+      const baseRef = selectedPR.base_label || selectedPR.base_branch;
+      const headRef = selectedPR.head_branch;
+      const diff = await window.go.main.App.GetPRDiff(selectedPR.repo_id, baseRef, headRef);
+
+      const tmpl = reviewTemplate || DEFAULT_TEMPLATE;
+      const prompt = tmpl
+        .replace(/\{\{PR_TITLE\}\}/g, selectedPR.title || '')
+        .replace(/\{\{PR_DESCRIPTION\}\}/g, selectedPR.description || 'No description provided.')
+        .replace(/\{\{PR_DIFF\}\}/g, diff || 'No diff available.');
+
+      copyToClipboard(prompt, setCopiedReviewPrompt);
+    } catch (err) {
+      alert(`Failed to generate review prompt: ${err}`);
+    } finally {
+      setIsGeneratingPrompt(false);
     }
   };
 
@@ -247,20 +289,43 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
             {/* Compare & Diff Actions */}
             <div>
               <h4 className="font-semibold text-gray-400 mb-1.5">Git Diff Tools</h4>
-              <div className="bg-[#0d1117] border border-zinc-800 rounded-lg p-2.5 flex gap-2">
+              <div className="bg-[#0d1117] border border-zinc-800 rounded-lg p-2.5 flex flex-col gap-2">
+                <div className="flex gap-2">
+                  <button
+                    onClick={handleViewDiff}
+                    className="flex-1 py-1.5 px-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded text-center transition flex items-center justify-center gap-1 font-medium hover:text-white"
+                  >
+                    <Eye size={12} /> See Diff
+                  </button>
+                  <button
+                    onClick={handleCopyDiff}
+                    className="py-1.5 px-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded transition flex items-center justify-center gap-1 font-medium hover:text-white"
+                    title="Copy complete PR git diff"
+                  >
+                    {copiedDiff ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
+                    Copy Diff
+                  </button>
+                </div>
+                {/* Copy AI Review Prompt */}
                 <button
-                  onClick={handleViewDiff}
-                  className="flex-1 py-1.5 px-2 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded text-center transition flex items-center justify-center gap-1 font-medium hover:text-white"
+                  onClick={handleCopyReviewPrompt}
+                  disabled={isGeneratingPrompt}
+                  className={`w-full py-1.5 px-2.5 border rounded transition flex items-center justify-center gap-1.5 font-medium text-[11px] ${
+                    copiedReviewPrompt
+                      ? 'bg-green-900/30 border-green-700 text-green-400'
+                      : isGeneratingPrompt
+                      ? 'bg-zinc-800/50 border-zinc-700 text-zinc-500 cursor-wait'
+                      : 'bg-indigo-950/40 hover:bg-indigo-900/40 border-indigo-800/60 text-indigo-300 hover:text-indigo-200 hover:border-indigo-600'
+                  }`}
+                  title="Generate and copy an AI code review prompt combining the template, PR description, and full diff"
                 >
-                  <Eye size={12} /> See Diff
-                </button>
-                <button
-                  onClick={handleCopyDiff}
-                  className="py-1.5 px-2.5 bg-zinc-800 hover:bg-zinc-700 border border-zinc-700 text-zinc-300 rounded transition flex items-center justify-center gap-1 font-medium hover:text-white"
-                  title="Copy complete PR git diff"
-                >
-                  {copiedDiff ? <Check size={12} className="text-green-500" /> : <Copy size={12} />}
-                  Copy Diff
+                  {copiedReviewPrompt ? (
+                    <><Check size={12} className="text-green-500" /> Prompt Copied!</>
+                  ) : isGeneratingPrompt ? (
+                    <><RefreshCw size={12} className="animate-spin" /> Generating...</>
+                  ) : (
+                    <><Bot size={12} /> Copy AI Review Prompt</>
+                  )}
                 </button>
               </div>
             </div>

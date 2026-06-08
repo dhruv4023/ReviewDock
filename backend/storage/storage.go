@@ -106,7 +106,6 @@ func (s *Service) ReadSettings() (*models.Settings, error) {
 		if errors.Is(err, os.ErrNotExist) {
 			return &models.Settings{
 				ConcurrencyLimit:      3,
-				DefaultRemotePriority: []string{"origin", "upstream", "odoo", "ent"},
 				AmendCommitTimestamp:  true,
 				ForcePushAfterRebase:  false,
 				AutoRefreshInterval:   10,
@@ -193,4 +192,33 @@ func (s *Service) WriteSession(session *models.Session) error {
 	encoder := json.NewEncoder(file)
 	encoder.SetIndent("", "  ")
 	return encoder.Encode(session)
+}
+
+func (s *Service) ReadReviewTemplate() (string, error) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+
+	filePath := filepath.Join(s.dataDir, "review_template.txt")
+	data, err := os.ReadFile(filePath)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return string(data), nil
+}
+
+func (s *Service) WriteReviewTemplate(template string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+
+	fl := s.getLock()
+	if err := fl.Lock(); err != nil {
+		return err
+	}
+	defer fl.Unlock()
+
+	filePath := filepath.Join(s.dataDir, "review_template.txt")
+	return os.WriteFile(filePath, []byte(template), 0600)
 }

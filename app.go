@@ -287,7 +287,6 @@ func (a *App) RebasePRs(requests []models.RebaseRequest) error {
 	if err != nil {
 		settings = &models.Settings{
 			ConcurrencyLimit:      3,
-			DefaultRemotePriority: []string{"origin", "upstream", "odoo", "ent"},
 			AmendCommitTimestamp:  true,
 			ForcePushAfterRebase:  false,
 		}
@@ -386,3 +385,14 @@ func (a *App) GetPRDiff(repoID string, baseLabel string, headBranch string) (str
 	}
 	return "", fmt.Errorf("repository not found: %s", repoID)
 }
+
+// GetReviewTemplate returns the saved PR review prompt template.
+func (a *App) GetReviewTemplate() (string, error) {
+	return a.storage.ReadReviewTemplate()
+}
+
+// SaveReviewTemplate persists the PR review prompt template.
+func (a *App) SaveReviewTemplate(template string) error {
+	return a.storage.WriteReviewTemplate(template)
+}
+

@@ -224,7 +224,6 @@ Stores global preferences and user-specific configurations.
 ```json
 {
   "concurrency_limit": 3,
-  "default_remote_priority": ["origin", "upstream", "odoo", "ent"],
   "amend_commit_timestamp": true,
   "force_push_after_rebase": false,
   "auto_refresh_interval_mins": 10,

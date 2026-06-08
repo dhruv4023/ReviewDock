@@ -30,6 +30,10 @@ export function GetRepositories() {
   return window['go']['main']['App']['GetRepositories']();
 }
 
+export function GetReviewTemplate() {
+  return window['go']['main']['App']['GetReviewTemplate']();
+}
+
 export function GetSession() {
   return window['go']['main']['App']['GetSession']();
 }
@@ -52,6 +56,10 @@ export function RebasePRs(arg1) {
 
 export function RemoveRepository(arg1) {
   return window['go']['main']['App']['RemoveRepository'](arg1);
+}
+
+export function SaveReviewTemplate(arg1) {
+  return window['go']['main']['App']['SaveReviewTemplate'](arg1);
 }
 
 export function SaveSettings(arg1) {

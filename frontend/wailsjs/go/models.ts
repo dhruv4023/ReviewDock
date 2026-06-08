@@ -184,7 +184,6 @@ export namespace models {
 	}
 	export class Settings {
 	    concurrency_limit: number;
-	    default_remote_priority: string[];
 	    amend_commit_timestamp: boolean;
 	    force_push_after_rebase: boolean;
 	    auto_refresh_interval_mins: number;
@@ -197,7 +196,6 @@ export namespace models {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.concurrency_limit = source["concurrency_limit"];
-	        this.default_remote_priority = source["default_remote_priority"];
 	        this.amend_commit_timestamp = source["amend_commit_timestamp"];
 	        this.force_push_after_rebase = source["force_push_after_rebase"];
 	        this.auto_refresh_interval_mins = source["auto_refresh_interval_mins"];

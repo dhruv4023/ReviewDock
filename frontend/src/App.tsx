@@ -4,7 +4,8 @@ import { Sidebar } from './components/Sidebar';
 import { PRTable } from './components/PRTable';
 import { DetailsPanel } from './components/DetailsPanel';
 import { TerminalPanel } from './components/TerminalPanel';
-import { Github, LogOut, AlertTriangle, RefreshCw, PanelRight, Copy, ExternalLink, Check } from 'lucide-react';
+import { SettingsDialog } from './components/SettingsDialog';
+import { Github, LogOut, AlertTriangle, RefreshCw, PanelRight, Copy, ExternalLink, Check, Settings } from 'lucide-react';
 
 const DETAILS_MIN = 260;
 const DETAILS_MAX = 600;
@@ -39,6 +40,7 @@ export const App: React.FC = () => {
   const { session, init, login, logout, oauthError, setSelectedPR, isCheckingSession, deviceCode, deviceUrl } = useAppStore();
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
 
   // Panel layout state — initialised from localStorage so they survive restarts
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
@@ -264,6 +266,18 @@ export const App: React.FC = () => {
 
           <div className="h-4 w-px bg-zinc-800" />
 
+          {/* Settings button */}
+          <button
+            id="settings-button"
+            onClick={() => setSettingsOpen(o => !o)}
+            className={`p-1.5 rounded transition ${settingsOpen ? 'bg-zinc-700 text-blue-400' : 'hover:bg-zinc-800 text-zinc-500 hover:text-gray-300'}`}
+            title="Settings"
+          >
+            <Settings size={15} />
+          </button>
+
+          <div className="h-4 w-px bg-zinc-800" />
+
           <div className="flex items-center gap-2">
             <img
               src={session.user.avatar_url}
@@ -312,6 +326,11 @@ export const App: React.FC = () => {
         height={terminalHeight}
         onResizeStart={onTerminalResizeStart}
       />
+
+      {/* Settings dialog */}
+      {settingsOpen && (
+        <SettingsDialog onClose={() => setSettingsOpen(false)} />
+      )}
     </div>
   );
 };

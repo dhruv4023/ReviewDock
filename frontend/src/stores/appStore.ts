@@ -21,6 +21,8 @@ declare global {
           GetRemotes(repoID: string): Promise<string[]>;
           SetBranchTracking(repoID: string, branch: string, remote: string): Promise<void>;
           GetPRDiff(repoID: string, baseLabel: string, headBranch: string): Promise<string>;
+          GetReviewTemplate(): Promise<string>;
+          SaveReviewTemplate(template: string): Promise<void>;
         };
       };
     };
@@ -81,7 +83,6 @@ export interface PullRequest {
 
 export interface Settings {
   concurrency_limit: number;
-  default_remote_priority: string[];
   amend_commit_timestamp: boolean;
   force_push_after_rebase: boolean;
   auto_refresh_interval_mins: number;
@@ -122,6 +123,8 @@ interface AppState {
   oauthError: string | null;
   /** Set when a PR's head branch has no remote tracking; drives the RemoteSetupModal. */
   pendingRemoteSetup: PendingRemoteSetup | null;
+  /** The current PR review prompt template (empty string = use default). */
+  reviewTemplate: string;
 
   // Actions
   init: () => Promise<void>;
@@ -144,6 +147,10 @@ interface AppState {
   skipRemoteSetup: () => Promise<void>;
   /** @internal Walks pending requests, opens modal for the first untracked branch or submits all. */
   _processNextRemoteSetup: (requests: RebaseRequest[], submitAfterSetup: boolean) => Promise<void>;
+  /** Loads the review template from the backend into the store. */
+  fetchReviewTemplate: () => Promise<void>;
+  /** Saves the review template to the backend and updates the store. */
+  saveReviewTemplate: (template: string) => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -160,6 +167,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   isLoadingPRs: false,
   oauthError: null,
   pendingRemoteSetup: null,
+  reviewTemplate: '',
 
   init: async () => {
     try {
@@ -174,6 +182,9 @@ export const useAppStore = create<AppState>((set, get) => ({
       const session = await window.go.main.App.GetSession();
       const settings = await window.go.main.App.GetSettings();
       set({ session, settings, isCheckingSession: false });
+
+      // Load review template regardless of session state
+      await get().fetchReviewTemplate();
 
       if (session) {
         await get().fetchRepos();
@@ -398,5 +409,24 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       console.error('Cancel failed', err);
     }
-  }
+  },
+
+  fetchReviewTemplate: async () => {
+    try {
+      const tmpl = await window.go.main.App.GetReviewTemplate();
+      set({ reviewTemplate: tmpl || '' });
+    } catch (err) {
+      console.error('Failed to load review template', err);
+    }
+  },
+
+  saveReviewTemplate: async (template: string) => {
+    try {
+      await window.go.main.App.SaveReviewTemplate(template);
+      set({ reviewTemplate: template });
+    } catch (err) {
+      console.error('Failed to save review template', err);
+      throw err;
+    }
+  },
 }));

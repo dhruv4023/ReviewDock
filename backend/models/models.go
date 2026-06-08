@@ -50,7 +50,6 @@ type Session struct {
 
 type Settings struct {
 	ConcurrencyLimit      int      `json:"concurrency_limit"`
-	DefaultRemotePriority []string `json:"default_remote_priority"`
 	AmendCommitTimestamp  bool     `json:"amend_commit_timestamp"`
 	ForcePushAfterRebase  bool     `json:"force_push_after_rebase"`
 	AutoRefreshInterval   int      `json:"auto_refresh_interval_mins"`
