@@ -57,7 +57,10 @@ func (a *App) startup(ctx context.Context) {
 	a.queueManager = queue.NewManager(settings.ConcurrencyLimit, a.gitExecutor, logCallback)
 	a.queueManager.Start(a.ctx)
 
-	// Log startup git check
+	// Log startup environment and git check
+	env := wails.Environment(a.ctx)
+	logCallback(fmt.Sprintf("\u001b[32m[STARTUP] Running in %s mode on %s/%s\u001b[0m\r\n", env.BuildType, env.Platform, env.Arch))
+
 	if ver, err := a.gitExecutor.CheckGitVersion(a.ctx); err != nil {
 		logCallback(fmt.Sprintf("\u001b[31m[STARTUP] ERROR: %v\u001b[0m\r\n", err))
 	} else {
@@ -395,5 +398,10 @@ func (a *App) GetReviewTemplate() (string, error) {
 // SaveReviewTemplate persists the PR review prompt template.
 func (a *App) SaveReviewTemplate(template string) error {
 	return a.storage.WriteReviewTemplate(template)
+}
+
+// IsDev returns true if the application is running in development mode.
+func (a *App) IsDev() bool {
+	return wails.Environment(a.ctx).BuildType != "production"
 }
 

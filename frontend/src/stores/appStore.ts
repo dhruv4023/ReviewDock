@@ -23,6 +23,7 @@ declare global {
           GetPRDiff(repoID: string, baseLabel: string, headBranch: string): Promise<string>;
           GetReviewTemplate(): Promise<string>;
           SaveReviewTemplate(template: string): Promise<void>;
+          IsDev(): Promise<boolean>;
         };
       };
     };
@@ -187,7 +188,13 @@ export const useAppStore = create<AppState>((set, get) => ({
 
       if (session) {
         await get().fetchRepos();
-        await get().fetchPRs(true);
+        let isDev = false;
+        try {
+          isDev = await window.go.main.App.IsDev();
+        } catch (e) {
+          console.error('Failed checking dev mode', e);
+        }
+        await get().fetchPRs(!isDev);
       }
 
       // Hook up OAuth Wails runtime events

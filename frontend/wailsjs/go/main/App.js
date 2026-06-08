@@ -42,6 +42,10 @@ export function GetSettings() {
   return window['go']['main']['App']['GetSettings']();
 }
 
+export function IsDev() {
+  return window['go']['main']['App']['IsDev']();
+}
+
 export function LoginGitHub() {
   return window['go']['main']['App']['LoginGitHub']();
 }

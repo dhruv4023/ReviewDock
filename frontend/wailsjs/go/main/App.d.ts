@@ -22,6 +22,8 @@ export function GetSession():Promise<models.Session>;
 
 export function GetSettings():Promise<models.Settings>;
 
+export function IsDev():Promise<boolean>;
+
 export function LoginGitHub():Promise<void>;
 
 export function Logout():Promise<void>;
