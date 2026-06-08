@@ -108,7 +108,6 @@ func (s *Service) ReadSettings() (*models.Settings, error) {
 				ConcurrencyLimit:      3,
 				AmendCommitTimestamp:  true,
 				ForcePushAfterRebase:  false,
-				AutoRefreshInterval:   10,
 				Theme:                 "dark",
 			}, nil
 		}

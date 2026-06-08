@@ -85,7 +85,6 @@ export interface Settings {
   concurrency_limit: number;
   amend_commit_timestamp: boolean;
   force_push_after_rebase: boolean;
-  auto_refresh_interval_mins: number;
   theme: string;
 }
 

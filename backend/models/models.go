@@ -52,7 +52,6 @@ type Settings struct {
 	ConcurrencyLimit      int      `json:"concurrency_limit"`
 	AmendCommitTimestamp  bool     `json:"amend_commit_timestamp"`
 	ForcePushAfterRebase  bool     `json:"force_push_after_rebase"`
-	AutoRefreshInterval   int      `json:"auto_refresh_interval_mins"`
 	Theme                 string   `json:"theme"`
 }
 

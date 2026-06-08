@@ -33,7 +33,6 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
 
   // General settings state
   const [concurrency, setConcurrency] = useState<number>(settings?.concurrency_limit ?? 3);
-  const [autoRefresh, setAutoRefresh] = useState<number>(settings?.auto_refresh_interval_mins ?? 10);
   const [amendTimestamp, setAmendTimestamp] = useState<boolean>(settings?.amend_commit_timestamp ?? true);
   const [forcePush, setForcePush] = useState<boolean>(settings?.force_push_after_rebase ?? false);
 
@@ -54,7 +53,6 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
   useEffect(() => {
     if (settings) {
       setConcurrency(settings.concurrency_limit);
-      setAutoRefresh(settings.auto_refresh_interval_mins);
       setAmendTimestamp(settings.amend_commit_timestamp);
       setForcePush(settings.force_push_after_rebase);
     }
@@ -65,14 +63,13 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
     const updated = {
       ...settings,
       concurrency_limit: concurrency,
-      auto_refresh_interval_mins: autoRefresh,
       amend_commit_timestamp: amendTimestamp,
       force_push_after_rebase: forcePush,
     };
     await setSettings(updated);
     setGeneralSaved(true);
     setTimeout(() => setGeneralSaved(false), 2000);
-  }, [settings, concurrency, autoRefresh, amendTimestamp, forcePush, setSettings]);
+  }, [settings, concurrency, amendTimestamp, forcePush, setSettings]);
 
   const handleSaveTemplate = useCallback(async () => {
     setTemplateError(null);
@@ -241,27 +238,9 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
               </div>
 
               <div className="w-full h-px bg-zinc-800" />
-              {/* Auto Refresh Interval */}
-              <div className="space-y-1.5">
-                <label htmlFor="auto-refresh-input" className="text-xs font-medium text-zinc-300">
-                  Auto-Refresh Interval (minutes)
-                </label>
-                <p className="text-[11px] text-zinc-500">How often to automatically fetch PR updates. Set to 0 to disable.</p>
-                <input
-                  id="auto-refresh-input"
-                  type="number"
-                  min={0}
-                  max={60}
-                  value={autoRefresh}
-                  onChange={e => setAutoRefresh(Number(e.target.value))}
-                  className="w-24 bg-[#0d1117] border border-zinc-700 focus:border-blue-500 rounded px-2.5 py-1.5 text-xs text-zinc-200 outline-none transition"
-                />
-              </div>
-
-              <div className="w-full h-px bg-zinc-800" />
 
               {/* Toggles */}
-              <div className="space-y-3">
+              {/* <div className="space-y-3">
                 <ToggleRow
                   id="amend-timestamp-toggle"
                   label="Amend Commit Timestamp"
@@ -276,7 +255,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
                   checked={forcePush}
                   onChange={setForcePush}
                 />
-              </div>
+              </div> */}
 
               <div className="flex justify-end pt-1">
                 <button
@@ -304,34 +283,34 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
 
 // ── Helper sub-component ─────────────────────────────────────────────────────
 
-interface ToggleRowProps {
-  id: string;
-  label: string;
-  description: string;
-  checked: boolean;
-  onChange: (v: boolean) => void;
-}
+// interface ToggleRowProps {
+//   id: string;
+//   label: string;
+//   description: string;
+//   checked: boolean;
+//   onChange: (v: boolean) => void;
+// }
 
-const ToggleRow: React.FC<ToggleRowProps> = ({ id, label, description, checked, onChange }) => (
-  <div className="flex items-start justify-between gap-4">
-    <div>
-      <label htmlFor={id} className="text-xs font-medium text-zinc-300 cursor-pointer">{label}</label>
-      <p className="text-[11px] text-zinc-500 mt-0.5">{description}</p>
-    </div>
-    <button
-      id={id}
-      role="switch"
-      aria-checked={checked}
-      onClick={() => onChange(!checked)}
-      className={`relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200 focus:outline-none mt-0.5 ${
-        checked ? 'bg-blue-600' : 'bg-zinc-700'
-      }`}
-    >
-      <span
-        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
-          checked ? 'translate-x-4' : 'translate-x-0'
-        }`}
-      />
-    </button>
-  </div>
-);
+// const ToggleRow: React.FC<ToggleRowProps> = ({ id, label, description, checked, onChange }) => (
+//   <div className="flex items-start justify-between gap-4">
+//     <div>
+//       <label htmlFor={id} className="text-xs font-medium text-zinc-300 cursor-pointer">{label}</label>
+//       <p className="text-[11px] text-zinc-500 mt-0.5">{description}</p>
+//     </div>
+//     <button
+//       id={id}
+//       role="switch"
+//       aria-checked={checked}
+//       onClick={() => onChange(!checked)}
+//       className={`relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200 focus:outline-none mt-0.5 ${
+//         checked ? 'bg-blue-600' : 'bg-zinc-700'
+//       }`}
+//     >
+//       <span
+//         className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
+//           checked ? 'translate-x-4' : 'translate-x-0'
+//         }`}
+//       />
+//     </button>
+//   </div>
+// );

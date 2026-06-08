@@ -186,7 +186,6 @@ export namespace models {
 	    concurrency_limit: number;
 	    amend_commit_timestamp: boolean;
 	    force_push_after_rebase: boolean;
-	    auto_refresh_interval_mins: number;
 	    theme: string;
 	
 	    static createFrom(source: any = {}) {
@@ -198,7 +197,6 @@ export namespace models {
 	        this.concurrency_limit = source["concurrency_limit"];
 	        this.amend_commit_timestamp = source["amend_commit_timestamp"];
 	        this.force_push_after_rebase = source["force_push_after_rebase"];
-	        this.auto_refresh_interval_mins = source["auto_refresh_interval_mins"];
 	        this.theme = source["theme"];
 	    }
 	}

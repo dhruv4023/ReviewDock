@@ -226,7 +226,6 @@ Stores global preferences and user-specific configurations.
   "concurrency_limit": 3,
   "amend_commit_timestamp": true,
   "force_push_after_rebase": false,
-  "auto_refresh_interval_mins": 10,
   "theme": "dark"
 }
 ```
