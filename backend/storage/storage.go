@@ -105,10 +105,10 @@ func (s *Service) ReadSettings() (*models.Settings, error) {
 	if err != nil {
 		if errors.Is(err, os.ErrNotExist) {
 			return &models.Settings{
-				ConcurrencyLimit:      3,
-				AmendCommitTimestamp:  true,
-				ForcePushAfterRebase:  false,
-				Theme:                 "dark",
+				ConcurrencyLimit:     3,
+				AmendCommitTimestamp: true,
+				ForcePushAfterRebase: false,
+				Theme:                "dark",
 			}, nil
 		}
 		return nil, err

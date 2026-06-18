@@ -1,6 +1,6 @@
 import React, { useEffect, useState } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X, Copy, Check, Eye, Bot } from 'lucide-react';
+import { ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X, Copy, Check, Eye, Bot, Loader2 } from 'lucide-react';
 
 interface DetailsPanelProps {
   /** Current panel width in px. Controlled by App.tsx drag logic. */
@@ -11,7 +11,7 @@ interface DetailsPanelProps {
 }
 
 export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onResizeStart }) => {
-  const { selectedPR, settings, setSettings, rebaseSelected, toggleSelectPR, selectedPRIds, reviewTemplate } = useAppStore();
+  const { selectedPR, rebaseSinglePR, isRebasing, reviewTemplate } = useAppStore();
   const [ciStatus, setCiStatus] = useState<string>('loading');
   const [isRefreshingCi, setIsRefreshingCi] = useState(false);
 
@@ -52,12 +52,8 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
   }, [selectedPR]);
 
   const handleAction = async (amend: boolean, push: boolean) => {
-    if (!settings || !selectedPR) return;
-    await setSettings({ ...settings, amend_commit_timestamp: amend, force_push_after_rebase: push });
-    const currentSelected = [...selectedPRIds];
-    toggleSelectPR(selectedPR.id);
-    await rebaseSelected();
-    if (!currentSelected.includes(selectedPR.id)) toggleSelectPR(selectedPR.id);
+    if (!selectedPR) return;
+    await rebaseSinglePR(selectedPR.id, amend, push);
   };
 
   const copyToClipboard = (text: string, setCopiedState: (v: boolean) => void) => {
@@ -343,14 +339,18 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
           <div className="p-3 border-t border-zinc-800 bg-[#0d1117]/20 flex flex-col gap-2">
             <button
               onClick={() => handleAction(true, false)}
-              className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 text-white rounded font-medium text-xs transition"
+              disabled={isRebasing}
+              className="w-full py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded font-medium text-xs transition flex items-center justify-center gap-1.5"
             >
+              {isRebasing ? <Loader2 size={12} className="animate-spin" /> : null}
               Rebase Branch
             </button>
             <button
               onClick={() => handleAction(true, true)}
-              className="w-full py-1.5 bg-[#238636] hover:bg-[#2ea043] text-white rounded font-medium text-xs transition"
+              disabled={isRebasing}
+              className="w-full py-1.5 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white rounded font-medium text-xs transition flex items-center justify-center gap-1.5"
             >
+              {isRebasing ? <Loader2 size={12} className="animate-spin" /> : null}
               Rebase + Force Push
             </button>
           </div>

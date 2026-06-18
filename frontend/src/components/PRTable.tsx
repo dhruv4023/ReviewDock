@@ -1,6 +1,6 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle, Wifi, GitBranch } from 'lucide-react';
+import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle, Wifi, GitBranch, Loader2 } from 'lucide-react';
 import { RemoteSetupModal } from './RemoteSetupModal';
 
 import { PullRequest } from '../stores/appStore';
@@ -20,6 +20,10 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
     deselectAllPRs,
     selectedPR,
     rebaseSelected,
+    isRebasing,
+    activeRebaseCount,
+    queuedRebaseCount,
+    rebaseJobs,
     settings,
     setSettings,
     pendingRemoteSetup,
@@ -189,7 +193,6 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
     await setSettings(updatedSettings);
 
     await rebaseSelected();
-    deselectAllPRs();
   };
 
   // Opens the remote-setup modal for all untracked PRs in the same repository.
@@ -211,6 +214,39 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
   const renderRow = (pr: PullRequest, isGrouped: boolean) => {
     const isSelected = selectedPRIds.includes(pr.id);
     const isCurrent = selectedPR?.id === pr.id;
+    const rebaseJob = rebaseJobs[pr.id];
+
+    const renderRebaseBadge = () => {
+      if (!rebaseJob) return null;
+      switch (rebaseJob.status) {
+        case 'queued':
+          return (
+            <span className="inline-flex items-center bg-zinc-800 text-zinc-400 px-1.5 py-0.5 rounded border border-zinc-700 text-[9px] font-semibold animate-pulse shrink-0">
+              Queued
+            </span>
+          );
+        case 'running':
+          return (
+            <span className="inline-flex items-center gap-1 bg-blue-950/40 text-blue-400 px-1.5 py-0.5 rounded border border-blue-900/60 text-[9px] font-semibold animate-pulse shrink-0">
+              <Loader2 size={10} className="animate-spin" /> Rebasing
+            </span>
+          );
+        case 'success':
+          return (
+            <span className="inline-flex items-center bg-green-950/40 text-green-400 px-1.5 py-0.5 rounded border border-green-900/60 text-[9px] font-semibold shrink-0">
+              ✓ Rebased
+            </span>
+          );
+        case 'failed':
+          return (
+            <span className="inline-flex items-center bg-red-950/40 text-red-400 px-1.5 py-0.5 rounded border border-red-900/60 text-[9px] font-semibold shrink-0" title={rebaseJob.error}>
+              ✗ Failed
+            </span>
+          );
+        default:
+          return null;
+      }
+    };
 
     return (
       <tr
@@ -230,7 +266,10 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
         </td>
         <td className="py-2.5 px-2 text-gray-500">#{pr.number}</td>
         <td className="py-2.5 px-2 font-medium text-gray-200 truncate max-w-xs" title={pr.title}>
-          {pr.title}
+          <div className="flex items-center gap-2 truncate">
+            {renderRebaseBadge()}
+            <span className="truncate">{pr.title}</span>
+          </div>
         </td>
         <td className="py-2.5 px-2 text-zinc-400 truncate max-w-[120px]" title={pr.repo_name}>
           {pr.repo_name}
@@ -304,30 +343,36 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
       {/* Top action bar */}
       <div className="p-3 border-b border-zinc-800 bg-[#161b22] flex flex-wrap gap-3 items-center justify-between">
         <div className="flex gap-2 items-center">
-          <button
+           <button
             onClick={() => handleBulkRebase(true, false)}
-            disabled={selectedPRIds.length === 0}
+            disabled={selectedPRIds.length === 0 || isRebasing}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-blue-600 hover:bg-blue-500 disabled:opacity-50 text-white rounded text-xs font-semibold action-btn"
           >
-            <Play size={13} /> Rebase Selected
+            {isRebasing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Rebase Selected
           </button>
           <button
             onClick={() => handleBulkRebase(true, true)}
-            disabled={selectedPRIds.length === 0}
+            disabled={selectedPRIds.length === 0 || isRebasing}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-[#238636] hover:bg-[#2ea043] disabled:opacity-50 text-white rounded text-xs font-semibold action-btn"
           >
-            <Play size={13} /> Rebase + Force Push
+            {isRebasing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Rebase + Force Push
           </button>
           <button
             onClick={() => handleBulkRebase(false, true)}
-            disabled={selectedPRIds.length === 0}
+            disabled={selectedPRIds.length === 0 || isRebasing}
             className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 rounded text-xs font-semibold action-btn"
           >
-            Force Push Only
+            {isRebasing ? <Loader2 size={13} className="animate-spin" /> : null} Force Push Only
           </button>
           {selectedPRIds.length > 0 && (
             <span className="text-xs text-gray-400 font-medium ml-2">
               {selectedPRIds.length} Selected
+            </span>
+          )}
+          {isRebasing && (
+            <span className="text-xs text-blue-400 font-semibold flex items-center gap-1.5 bg-blue-950/20 border border-blue-900/60 px-2 py-1 rounded ml-2 animate-pulse">
+              <Loader2 size={12} className="animate-spin" />
+              Rebasing: {activeRebaseCount} active, {queuedRebaseCount} queued
             </span>
           )}
         </div>

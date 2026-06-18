@@ -104,8 +104,13 @@ export interface PendingRemoteSetup {
   remotes: string[];
   /** The full queue of rebase requests waiting to be submitted (includes this PR). */
   pendingRequests: RebaseRequest[];
-  /** When true, RebasePRs is called after all remotes are resolved. False = tracking-only (WiFi icon). */
+  // When true, RebasePRs is called after all remotes are resolved. False = tracking-only (WiFi icon).
   submitAfterSetup: boolean;
+}
+
+export interface RebaseJobState {
+  status: 'queued' | 'running' | 'success' | 'failed';
+  error?: string;
 }
 
 interface AppState {
@@ -120,6 +125,11 @@ interface AppState {
   deviceUrl: string | null;
   isLoadingRepos: boolean;
   isLoadingPRs: boolean;
+  /** True while a rebase (or rebase+force-push) operation is in flight. */
+  isRebasing: boolean;
+  activeRebaseCount: number;
+  queuedRebaseCount: number;
+  rebaseJobs: Record<string, RebaseJobState>;
   oauthError: string | null;
   /** Set when a PR's head branch has no remote tracking; drives the RemoteSetupModal. */
   pendingRemoteSetup: PendingRemoteSetup | null;
@@ -140,6 +150,8 @@ interface AppState {
   selectAllPRs: (visiblePrs: PullRequest[]) => void;
   deselectAllPRs: () => void;
   rebaseSelected: () => Promise<void>;
+  /** Rebases a single PR directly (used by DetailsPanel). Does NOT touch selectedPRIds. */
+  rebaseSinglePR: (prId: string, amend: boolean, push: boolean) => Promise<void>;
   cancelRebase: (jobID: string) => Promise<void>;
   /** Called by RemoteSetupModal when the user picks a remote and confirms. */
   confirmRemoteSetup: (remote: string) => Promise<void>;
@@ -165,6 +177,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   deviceUrl: null,
   isLoadingRepos: false,
   isLoadingPRs: false,
+  isRebasing: false,
+  activeRebaseCount: 0,
+  queuedRebaseCount: 0,
+  rebaseJobs: {},
   oauthError: null,
   pendingRemoteSetup: null,
   reviewTemplate: '',
@@ -211,6 +227,26 @@ export const useAppStore = create<AppState>((set, get) => ({
 
         window.runtime.EventsOn('oauth:device_code', (data: { code: string; url: string }) => {
           set({ deviceCode: data.code, deviceUrl: data.url });
+        });
+
+        window.runtime.EventsOn('rebase:status', (data: { job_id: string; status: 'queued' | 'running' | 'success' | 'failed'; error?: string; active_count: number; queued_count: number }) => {
+          const { rebaseJobs } = get();
+          const nextJobs = { ...rebaseJobs };
+          nextJobs[data.job_id] = {
+            status: data.status,
+            error: data.error,
+          };
+          set({
+            rebaseJobs: nextJobs,
+            activeRebaseCount: data.active_count,
+            queuedRebaseCount: data.queued_count,
+            isRebasing: (data.active_count + data.queued_count) > 0,
+          });
+
+          // Fetch fresh PRs on success so the sync status/counts update
+          if (data.status === 'success') {
+            get().fetchPRs(false);
+          }
         });
       }
 
@@ -307,7 +343,7 @@ export const useAppStore = create<AppState>((set, get) => ({
   deselectAllPRs: () => set({ selectedPRIds: [] }),
 
   rebaseSelected: async () => {
-    const { prs, selectedPRIds } = get();
+    const { prs, selectedPRIds, rebaseJobs } = get();
     const targets = prs.filter(pr => selectedPRIds.includes(pr.id));
     if (targets.length === 0) return;
 
@@ -318,9 +354,45 @@ export const useAppStore = create<AppState>((set, get) => ({
       base_label: pr.base_label,
     }));
 
+    // Clear old status for targets
+    const nextJobs = { ...rebaseJobs };
+    targets.forEach(t => {
+      delete nextJobs[t.id];
+    });
+    set({ rebaseJobs: nextJobs });
+
     // Check each request for missing remote tracking.
     // A head_label without "/" means GetUpstreamByBranch failed — no tracking configured.
     // submitAfterSetup=true: once all remotes resolved, submit jobs to queue.
+    await get()._processNextRemoteSetup(requests, true);
+  },
+
+  rebaseSinglePR: async (prId: string, amend: boolean, push: boolean) => {
+    const { prs, settings, rebaseJobs } = get();
+    const pr = prs.find(p => p.id === prId);
+    if (!pr || !settings) return;
+
+    // Save settings with the desired amend/push flags
+    const updatedSettings = {
+      ...settings,
+      amend_commit_timestamp: amend,
+      force_push_after_rebase: push,
+    };
+    await window.go.main.App.SaveSettings(updatedSettings);
+    set({ settings: updatedSettings });
+
+    const requests: RebaseRequest[] = [{
+      id: pr.id,
+      repo_id: pr.repo_id,
+      head_label: pr.head_label,
+      base_label: pr.base_label,
+    }];
+
+    // Clear old status for target
+    const nextJobs = { ...rebaseJobs };
+    delete nextJobs[pr.id];
+    set({ rebaseJobs: nextJobs });
+
     await get()._processNextRemoteSetup(requests, true);
   },
 

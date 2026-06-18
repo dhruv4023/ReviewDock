@@ -24,8 +24,8 @@ type PullRequest struct {
 	State            string    `json:"state"` // "open", "closed", "draft"
 	IsDraft          bool      `json:"is_draft"`
 	UpdatedAt        time.Time `json:"updated_at"`
-	AheadCount       int       `json:"ahead_count"`       // local branch commits not on remote
-	BehindCount      int       `json:"behind_count"`      // remote tracking commits not in local
+	AheadCount       int       `json:"ahead_count"`        // local branch commits not on remote
+	BehindCount      int       `json:"behind_count"`       // remote tracking commits not in local
 	LocalAheadCount  int       `json:"local_ahead_count"`  // local branch commits not on remote
 	LocalBehindCount int       `json:"local_behind_count"` // remote tracking commits not in local
 	MergeableStatus  string    `json:"mergeable_status"`   // "mergeable", "conflicting", "unknown"
@@ -49,10 +49,10 @@ type Session struct {
 }
 
 type Settings struct {
-	ConcurrencyLimit      int      `json:"concurrency_limit"`
-	AmendCommitTimestamp  bool     `json:"amend_commit_timestamp"`
-	ForcePushAfterRebase  bool     `json:"force_push_after_rebase"`
-	Theme                 string   `json:"theme"`
+	ConcurrencyLimit     int    `json:"concurrency_limit"`
+	AmendCommitTimestamp bool   `json:"amend_commit_timestamp"`
+	ForcePushAfterRebase bool   `json:"force_push_after_rebase"`
+	Theme                string `json:"theme"`
 }
 
 type RebaseRequest struct {

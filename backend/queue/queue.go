@@ -12,6 +12,7 @@ import (
 )
 
 type LogFunc func(message string)
+type StatusFunc func(jobID string, status string, errMsg string, active int, queued int)
 
 type Job struct {
 	ID        string // Unique identifier for the job (e.g. repoName-PRNumber)
@@ -23,25 +24,27 @@ type Job struct {
 }
 
 type Manager struct {
-	gitExecutor *git.Executor
-	jobsChan    chan Job
-	activeJobs  map[string]context.CancelFunc
-	activeMu    sync.Mutex
-	wg          sync.WaitGroup
-	workers     int
-	logCallback LogFunc
+	gitExecutor    *git.Executor
+	jobsChan       chan Job
+	activeJobs     map[string]context.CancelFunc
+	activeMu       sync.Mutex
+	wg             sync.WaitGroup
+	workers        int
+	logCallback    LogFunc
+	statusCallback StatusFunc
 }
 
-func NewManager(workers int, gitExecutor *git.Executor, logCallback LogFunc) *Manager {
+func NewManager(workers int, gitExecutor *git.Executor, logCallback LogFunc, statusCallback StatusFunc) *Manager {
 	if workers <= 0 {
 		workers = 3
 	}
 	return &Manager{
-		gitExecutor: gitExecutor,
-		jobsChan:    make(chan Job, 200),
-		activeJobs:  make(map[string]context.CancelFunc),
-		workers:     workers,
-		logCallback: logCallback,
+		gitExecutor:    gitExecutor,
+		jobsChan:       make(chan Job, 200),
+		activeJobs:     make(map[string]context.CancelFunc),
+		workers:        workers,
+		logCallback:    logCallback,
+		statusCallback: statusCallback,
 	}
 }
 
@@ -55,6 +58,13 @@ func (m *Manager) Start(ctx context.Context) {
 func (m *Manager) Submit(job Job) {
 	m.jobsChan <- job
 	m.log(fmt.Sprintf("\u001b[33m[%s] Queued PR branch '%s' for rebasing onto '%s'\u001b[0m\r\n", job.RepoName, job.HeadLabel, job.BaseLabel))
+	if m.statusCallback != nil {
+		m.activeMu.Lock()
+		active := len(m.activeJobs)
+		m.activeMu.Unlock()
+		queued := len(m.jobsChan)
+		m.statusCallback(job.ID, "queued", "", active, queued)
+	}
 }
 
 func (m *Manager) Cancel(jobID string) {
@@ -95,21 +105,34 @@ func (m *Manager) worker(ctx context.Context) {
 			jobCtx, cancel := context.WithCancel(ctx)
 			m.activeMu.Lock()
 			m.activeJobs[job.ID] = cancel
+			active := len(m.activeJobs)
 			m.activeMu.Unlock()
+			queued := len(m.jobsChan)
 
 			m.log(fmt.Sprintf("\u001b[32m[%s] Starting rebase process for branch '%s'...\u001b[0m\r\n", job.RepoName, job.HeadLabel))
+			if m.statusCallback != nil {
+				m.statusCallback(job.ID, "running", "", active, queued)
+			}
 
 			err := m.processRebase(jobCtx, job)
 
 			m.activeMu.Lock()
 			delete(m.activeJobs, job.ID)
+			activeAfter := len(m.activeJobs)
 			m.activeMu.Unlock()
 			cancel()
+			queuedAfter := len(m.jobsChan)
 
 			if err != nil {
 				m.log(fmt.Sprintf("\u001b[31m[%s] FAILED rebase workflow: %v\u001b[0m\r\n", job.RepoName, err))
+				if m.statusCallback != nil {
+					m.statusCallback(job.ID, "failed", err.Error(), activeAfter, queuedAfter)
+				}
 			} else {
 				m.log(fmt.Sprintf("\u001b[32m[%s] SUCCESS: PR rebase workflow finished!\u001b[0m\r\n", job.RepoName))
+				if m.statusCallback != nil {
+					m.statusCallback(job.ID, "success", "", activeAfter, queuedAfter)
+				}
 			}
 		}
 	}

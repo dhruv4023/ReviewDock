@@ -54,7 +54,16 @@ func (a *App) startup(ctx context.Context) {
 	logCallback := func(msg string) {
 		wails.EventsEmit(a.ctx, "terminal:log", msg)
 	}
-	a.queueManager = queue.NewManager(settings.ConcurrencyLimit, a.gitExecutor, logCallback)
+	statusCallback := func(jobID string, status string, errMsg string, active int, queued int) {
+		wails.EventsEmit(a.ctx, "rebase:status", map[string]interface{}{
+			"job_id":       jobID,
+			"status":       status,
+			"error":        errMsg,
+			"active_count": active,
+			"queued_count": queued,
+		})
+	}
+	a.queueManager = queue.NewManager(settings.ConcurrencyLimit, a.gitExecutor, logCallback, statusCallback)
 	a.queueManager.Start(a.ctx)
 
 	// Log startup environment and git check
@@ -290,9 +299,9 @@ func (a *App) RebasePRs(requests []models.RebaseRequest) error {
 	settings, err := a.storage.ReadSettings()
 	if err != nil {
 		settings = &models.Settings{
-			ConcurrencyLimit:      3,
-			AmendCommitTimestamp:  true,
-			ForcePushAfterRebase:  false,
+			ConcurrencyLimit:     3,
+			AmendCommitTimestamp: true,
+			ForcePushAfterRebase: false,
 		}
 	}
 
@@ -404,4 +413,3 @@ func (a *App) SaveReviewTemplate(template string) error {
 func (a *App) IsDev() bool {
 	return wails.Environment(a.ctx).BuildType != "production"
 }
-
