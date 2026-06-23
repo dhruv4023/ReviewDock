@@ -14,6 +14,7 @@ type LogFunc func(message string)
 type StatusFunc func(jobID string, status string, errMsg string, active int, queued int)
 
 type GitExecutor interface {
+	GetRepoLock(repoPath string) *sync.Mutex
 	IsClean(ctx context.Context, dir string) (bool, error)
 	Fetch(ctx context.Context, dir string, log git.LogWriter) error
 	Checkout(ctx context.Context, dir string, branch string, log git.LogWriter) error
@@ -63,9 +64,11 @@ type Manager struct {
 	workers        int
 	mu             sync.Mutex
 	wg             sync.WaitGroup
-	notifyChan     chan struct{}
+	rebaseSem      chan struct{}
+	cond           *sync.Cond
 	logCallback    LogFunc
 	statusCallback StatusFunc
+	ctx            context.Context
 	cancel         context.CancelFunc
 }
 
@@ -73,29 +76,27 @@ func NewManager(workers int, gitExecutor GitExecutor, logCallback LogFunc, statu
 	if workers <= 0 {
 		workers = 3
 	}
-	return &Manager{
+	m := &Manager{
 		gitExecutor:    gitExecutor,
 		workers:        workers,
-		notifyChan:     make(chan struct{}, workers),
+		rebaseSem:      make(chan struct{}, workers),
 		logCallback:    logCallback,
 		statusCallback: statusCallback,
 	}
+	m.cond = sync.NewCond(&m.mu)
+	return m
 }
 
 func (m *Manager) Start(ctx context.Context) {
 	m.mu.Lock()
 	defer m.mu.Unlock()
-	var startCtx context.Context
-	startCtx, m.cancel = context.WithCancel(ctx)
-	for i := 0; i < m.workers; i++ {
-		m.wg.Add(1)
-		go m.worker(startCtx)
-	}
+	m.ctx, m.cancel = context.WithCancel(ctx)
 }
 
 func (m *Manager) Submit(job Job) {
 	m.mu.Lock()
 
+	jobCtx, cancel := context.WithCancel(m.ctx)
 	j := &Job{
 		ID:        job.ID,
 		RepoName:  job.RepoName,
@@ -104,14 +105,18 @@ func (m *Manager) Submit(job Job) {
 		BaseLabel: job.BaseLabel,
 		Options:   job.Options,
 		State:     statePending,
+		JobCtx:    jobCtx,
+		Cancel:    cancel,
 	}
 	m.jobs = append(m.jobs, j)
 
 	m.log(fmt.Sprintf("\u001b[33m[%s] Queued PR branch '%s' for rebasing onto '%s'\u001b[0m\r\n", j.RepoName, j.HeadLabel, j.BaseLabel))
 	m.reportStatusLocked(j.ID, "queued", "")
-	m.mu.Unlock()
 
-	m.broadcast()
+	m.wg.Add(1)
+	go m.processJob(j)
+
+	m.mu.Unlock()
 }
 
 func (m *Manager) Cancel(jobID string) {
@@ -139,8 +144,8 @@ func (m *Manager) Cancel(jobID string) {
 			break
 		}
 	}
+	m.cond.Broadcast()
 	m.cleanCompletedJobsLocked()
-	m.broadcast()
 }
 
 func (m *Manager) Stop() {
@@ -153,6 +158,7 @@ func (m *Manager) Stop() {
 			j.Cancel()
 		}
 	}
+	m.cond.Broadcast()
 	m.mu.Unlock()
 	m.wg.Wait()
 }
@@ -160,67 +166,6 @@ func (m *Manager) Stop() {
 func (m *Manager) log(msg string) {
 	if m.logCallback != nil {
 		m.logCallback(msg)
-	}
-}
-
-func (m *Manager) worker(ctx context.Context) {
-	defer m.wg.Done()
-
-	for {
-		select {
-		case <-ctx.Done():
-			return
-		default:
-			job := m.acquireNextJob(ctx)
-			if job == nil {
-				select {
-				case <-ctx.Done():
-					return
-				case <-m.notifyChan:
-					continue
-				}
-			}
-
-			m.runJob(ctx, job)
-			m.broadcast()
-		}
-	}
-}
-
-func (m *Manager) acquireNextJob(ctx context.Context) *Job {
-	m.mu.Lock()
-	defer m.mu.Unlock()
-
-	// 1. Identify which repos are currently busy (any job in rebasing, rebased, or pushing state)
-	busyRepos := make(map[string]bool)
-	for _, j := range m.jobs {
-		if j.State == stateRebasing || j.State == stateRebased || j.State == statePushing {
-			busyRepos[j.RepoPath] = true
-		}
-	}
-
-	// 2. Find the first pending job whose repo is NOT busy
-	for _, j := range m.jobs {
-		if j.State == statePending && !busyRepos[j.RepoPath] {
-			jobCtx, cancel := context.WithCancel(ctx)
-			j.State = stateRebasing
-			j.Cancel = cancel
-			j.JobCtx = jobCtx
-
-			m.reportStatusLocked(j.ID, "running", "")
-			return j
-		}
-	}
-
-	return nil
-}
-
-func (m *Manager) broadcast() {
-	for i := 0; i < m.workers; i++ {
-		select {
-		case m.notifyChan <- struct{}{}:
-		default:
-		}
 	}
 }
 
@@ -239,12 +184,41 @@ func (m *Manager) reportStatusLocked(jobID string, status string, errMsg string)
 	}
 }
 
-func (m *Manager) runJob(ctx context.Context, job *Job) {
-	err := m.executeRebasePhase(job.JobCtx, job)
+func (m *Manager) processJob(job *Job) {
+	defer m.wg.Done()
+
+	// 1. Acquire repo lock (coordinates with all git commands across the app)
+	lock := m.gitExecutor.GetRepoLock(job.RepoPath)
+	lock.Lock()
+	defer lock.Unlock()
+
+	// 2. Wait to acquire rebase semaphore
+	select {
+	case <-job.JobCtx.Done():
+		m.mu.Lock()
+		job.State = stateFailed
+		job.Error = job.JobCtx.Err()
+		m.reportStatusLocked(job.ID, "failed", job.Error.Error())
+		m.handleGroupFailureLocked(job)
+		m.cleanCompletedJobsLocked()
+		m.cond.Broadcast()
+		m.mu.Unlock()
+		return
+	case m.rebaseSem <- struct{}{}:
+	}
 
 	m.mu.Lock()
-	defer m.mu.Unlock()
+	job.State = stateRebasing
+	m.reportStatusLocked(job.ID, "running", "")
+	m.mu.Unlock()
 
+	m.log(fmt.Sprintf("\u001b[32m[%s] Starting rebase process for branch '%s'...\u001b[0m\r\n", job.RepoName, job.HeadLabel))
+	err := m.executeRebasePhase(job.JobCtx, job)
+
+	// Release rebase semaphore immediately to allow other rebases
+	<-m.rebaseSem
+
+	m.mu.Lock()
 	if err != nil {
 		job.State = stateFailed
 		job.Error = err
@@ -252,6 +226,8 @@ func (m *Manager) runJob(ctx context.Context, job *Job) {
 		m.reportStatusLocked(job.ID, "failed", err.Error())
 		m.handleGroupFailureLocked(job)
 		m.cleanCompletedJobsLocked()
+		m.cond.Broadcast()
+		m.mu.Unlock()
 		return
 	}
 
@@ -277,6 +253,7 @@ func (m *Manager) runJob(ctx context.Context, job *Job) {
 			m.reportStatusLocked(job.ID, "success", "")
 		}
 		m.cleanCompletedJobsLocked()
+		m.mu.Unlock()
 		return
 	}
 
@@ -295,6 +272,31 @@ func (m *Manager) runJob(ctx context.Context, job *Job) {
 	} else {
 		m.log(fmt.Sprintf("\u001b[33m[GROUP] Branch '%s' waiting for other group PRs to finish rebase...\u001b[0m\r\n", job.GetBranchName()))
 	}
+
+	// Wait until group push is triggered or failed
+	for job.State == stateRebased {
+		m.cond.Wait()
+	}
+
+	if job.State == statePushing {
+		m.mu.Unlock()
+		pushErr := m.executePushPhase(job.JobCtx, job)
+		m.mu.Lock()
+
+		if pushErr != nil {
+			job.State = stateFailed
+			job.Error = pushErr
+			m.log(fmt.Sprintf("\u001b[31m[%s] GROUP FAILED force push: %v\u001b[0m\r\n", job.RepoName, pushErr))
+			m.reportStatusLocked(job.ID, "failed", pushErr.Error())
+		} else {
+			job.State = stateSuccess
+			m.log(fmt.Sprintf("\u001b[32m[%s] GROUP SUCCESS: PR rebase & push workflow finished!\u001b[0m\r\n", job.RepoName))
+			m.reportStatusLocked(job.ID, "success", "")
+		}
+		m.cleanCompletedJobsLocked()
+	}
+
+	m.mu.Unlock()
 }
 
 func (m *Manager) executeRebasePhase(ctx context.Context, job *Job) error {
@@ -390,44 +392,7 @@ func (m *Manager) executeGroupPushLocked(group []*Job) {
 		j.State = statePushing
 		m.reportStatusLocked(j.ID, "running", "")
 	}
-
-	groupCopy := make([]*Job, len(group))
-	copy(groupCopy, group)
-
-	go func() {
-		var wg sync.WaitGroup
-		pushErrors := make([]error, len(groupCopy))
-
-		for i, j := range groupCopy {
-			wg.Add(1)
-			go func(idx int, job *Job) {
-				defer wg.Done()
-				pushErrors[idx] = m.executePushPhase(job.JobCtx, job)
-			}(i, j)
-		}
-
-		wg.Wait()
-
-		m.mu.Lock()
-		defer m.mu.Unlock()
-
-		for i, job := range groupCopy {
-			err := pushErrors[i]
-			if err != nil {
-				job.State = stateFailed
-				job.Error = err
-				m.log(fmt.Sprintf("\u001b[31m[%s] GROUP FAILED force push: %v\u001b[0m\r\n", job.RepoName, err))
-				m.reportStatusLocked(job.ID, "failed", err.Error())
-			} else {
-				job.State = stateSuccess
-				m.log(fmt.Sprintf("\u001b[32m[%s] GROUP SUCCESS: PR rebase & push workflow finished!\u001b[0m\r\n", job.RepoName))
-				m.reportStatusLocked(job.ID, "success", "")
-			}
-		}
-
-		m.cleanCompletedJobsLocked()
-		m.broadcast()
-	}()
+	m.cond.Broadcast()
 }
 
 func (m *Manager) handleGroupFailureLocked(failedJob *Job) {
@@ -452,6 +417,7 @@ func (m *Manager) handleGroupFailureLocked(failedJob *Job) {
 			m.reportStatusLocked(j.ID, "failed", j.Error.Error())
 		}
 	}
+	m.cond.Broadcast()
 }
 
 func (m *Manager) cleanCompletedJobsLocked() {

@@ -86,12 +86,10 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ height, onResizeSt
 
   // Refit xterm whenever height changes or panel is expanded
   useEffect(() => {
-    if (!collapsed) {
       setTimeout(() => {
         try { fitAddonInstance.current?.fit(); } catch (_) {}
       }, 30);
-    }
-  }, [height, collapsed]);
+  }, []);
 
   const handleClear = () => {
     if (xtermInstance.current) {
@@ -159,9 +157,7 @@ export const TerminalPanel: React.FC<TerminalPanelProps> = ({ height, onResizeSt
       </div>
 
       {/* Xterm viewport */}
-      {!collapsed && (
-        <div ref={terminalRef} className="flex-1 p-2 overflow-hidden bg-[#0b0e14]" />
-      )}
+      <div ref={terminalRef} className="flex-1 p-2 overflow-hidden bg-[#0b0e14]" />
     </div>
   );
 };

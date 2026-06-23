@@ -14,6 +14,7 @@ import (
 
 type MockGitExecutor struct {
 	mu           sync.Mutex
+	locks        map[string]*sync.Mutex
 	isCleanFunc  func(ctx context.Context, dir string) (bool, error)
 	fetchFunc    func(ctx context.Context, dir string, log git.LogWriter) error
 	checkoutFunc func(ctx context.Context, dir string, branch string, log git.LogWriter) error
@@ -24,6 +25,20 @@ type MockGitExecutor struct {
 
 	// Track function execution history for assertions
 	history []string
+}
+
+func (m *MockGitExecutor) GetRepoLock(repoPath string) *sync.Mutex {
+	m.mu.Lock()
+	defer m.mu.Unlock()
+	if m.locks == nil {
+		m.locks = make(map[string]*sync.Mutex)
+	}
+	lock, exists := m.locks[repoPath]
+	if !exists {
+		lock = &sync.Mutex{}
+		m.locks[repoPath] = lock
+	}
+	return lock
 }
 
 func (m *MockGitExecutor) recordCall(msg string) {

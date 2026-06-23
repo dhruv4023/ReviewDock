@@ -47,7 +47,7 @@ func (a *App) startup(ctx context.Context) {
 	settings, err := a.storage.ReadSettings()
 	if err != nil {
 		wails.LogErrorf(a.ctx, "Failed reading settings: %v", err)
-		settings = &models.Settings{ConcurrencyLimit: 3}
+		settings = &models.Settings{ConcurrencyLimit: 2}
 	}
 
 	// Initialize Queue Manager
@@ -299,7 +299,7 @@ func (a *App) RebasePRs(requests []models.RebaseRequest) error {
 	settings, err := a.storage.ReadSettings()
 	if err != nil {
 		settings = &models.Settings{
-			ConcurrencyLimit:     3,
+			ConcurrencyLimit:     2,
 			AmendCommitTimestamp: true,
 			ForcePushAfterRebase: false,
 		}
