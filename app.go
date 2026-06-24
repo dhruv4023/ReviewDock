@@ -10,12 +10,12 @@ import (
 
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 
-	"my-github-pr/backend/git"
-	"my-github-pr/backend/github"
-	"my-github-pr/backend/models"
-	"my-github-pr/backend/queue"
-	"my-github-pr/backend/storage"
-	"my-github-pr/logger"
+	"review-dock/backend/git"
+	"review-dock/backend/github"
+	"review-dock/backend/models"
+	"review-dock/backend/queue"
+	"review-dock/backend/storage"
+	"review-dock/logger"
 )
 
 type App struct {
@@ -37,7 +37,7 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
 	// Initialize Storage
-	store, err := storage.NewService("github-pr-manager")
+	store, err := storage.NewService("review-dock-manager")
 	if err != nil {
 		wails.LogErrorf(a.ctx, "Failed initializing storage: %v", err)
 	}

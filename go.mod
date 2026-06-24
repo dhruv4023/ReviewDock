@@ -1,4 +1,4 @@
-module my-github-pr
+module review-dock
 
 go 1.22.0
 

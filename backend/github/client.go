@@ -9,9 +9,9 @@ import (
 	"strings"
 	"time"
 
-	"my-github-pr/backend/git"
-	"my-github-pr/backend/models"
-	"my-github-pr/logger"
+	"review-dock/backend/git"
+	"review-dock/backend/models"
+	"review-dock/logger"
 )
 
 // Client wraps the gh CLI for all GitHub data interactions.

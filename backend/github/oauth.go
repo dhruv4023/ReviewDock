@@ -11,7 +11,7 @@ import (
 	"strings"
 	"sync"
 
-	"my-github-pr/backend/models"
+	"review-dock/backend/models"
 )
 
 // GetSession returns the current GitHub session from gh CLI auth state.

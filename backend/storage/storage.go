@@ -9,8 +9,9 @@ import (
 	"path/filepath"
 	"sync"
 
+	"review-dock/backend/models"
+
 	"github.com/gofrs/flock"
-	"my-github-pr/backend/models"
 )
 
 type Service struct {

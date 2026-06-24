@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"my-github-pr/backend/git"
-	"my-github-pr/backend/models"
+	"review-dock/backend/git"
+	"review-dock/backend/models"
 )
 
 type MockGitExecutor struct {

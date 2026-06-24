@@ -77,7 +77,7 @@ flowchart TB
 Here is the recommended production directory layout:
 
 ```text
-github-pr/
+review-dock/
 ├── main.go                     # Application entrypoint
 ├── app.go                      # Wails App lifecycle handlers & Bindings
 ├── wails.json                  # Wails project configuration
@@ -184,7 +184,7 @@ sequenceDiagram
 
 ## 6. JSON Storage Schema
 
-All configurations are saved inside the user's local application data directory (e.g., `~/.config/github-pr-manager/` on Linux).
+All configurations are saved inside the user's local application data directory (e.g., `~/.config/review-dock-manager/` on Linux).
 
 ### `sessions.json`
 Stores the OAuth token and metadata of the authenticated user.

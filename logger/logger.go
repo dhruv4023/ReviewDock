@@ -17,12 +17,12 @@ func InitLogger() {
 	if err != nil {
 		Fatalf("Failed to get user config dir: %v", err)
 	}
-	logDir = filepath.Join(dir, "github-pr", "logs")
+	logDir = filepath.Join(dir, "review-dock", "logs")
 	if err := os.MkdirAll(logDir, 0755); err != nil {
 		Fatalf("Failed to create log directory: %v", err)
 	}
 
-	filename := filepath.Join(logDir, "github-pr.log")
+	filename := filepath.Join(logDir, "review-dock.log")
 
 	log.SetOutput(&lumberjack.Logger{
 		Filename:   filename,

@@ -30,7 +30,7 @@ Make sure you have the following installed on your machine:
 ### Steps to Run (Development Mode)
 1. Navigate to the root project directory:
    ```bash
-   cd github-pr
+   cd review-dock
    ```
 2. Run the Wails development server. This starts the backend debugger and watches the Vite frontend:
    ```bash
@@ -59,4 +59,4 @@ To hook up authorization:
    - **Homepage URL**: `https://github.com` (can be anything)
    - **Authorization callback URL**: `https://github.com` (since we use the **Device Flow**, this is required but not visited).
 3. Copy the **Client ID**.
-4. Paste it into the `DefaultClientID` constant in [backend/github/oauth.go](file:///home/odoo/Files/github-pr/backend/github/oauth.go#L11).
+4. Paste it into the `DefaultClientID` constant in [backend/github/oauth.go](file:///home/odoo/Files/review-dock/backend/github/oauth.go#L11).

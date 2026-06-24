@@ -5,8 +5,8 @@ import (
 	"context"
 	"fmt"
 	"io"
-	"my-github-pr/logger"
 	"os/exec"
+	"review-dock/logger"
 	"strings"
 	"sync"
 )
