@@ -1,7 +1,8 @@
 import React, { useState, useMemo, useEffect, useRef } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle, Wifi, GitBranch, Loader2 } from 'lucide-react';
+import { RefreshCw, Play, Search, Filter, AlertTriangle, CheckCircle, HelpCircle, Wifi, GitBranch, Loader2, X } from 'lucide-react';
 import { RemoteSetupModal } from './RemoteSetupModal';
+import { AbortJobsDialog, AbortableJob } from './AbortJobsDialog';
 
 import { PullRequest } from '../stores/appStore';
 
@@ -26,9 +27,12 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
     rebaseJobs,
     settings,
     setSettings,
+    cancelRebase,
     pendingRemoteSetup,
     _processNextRemoteSetup,
   } = useAppStore();
+
+  const [abortDialogOpen, setAbortDialogOpen] = useState(false);
 
   const [stateFilter, setStateFilter] = useState<'open' | 'draft' | 'closed' | 'all'>('all');
   const [excludeDrafts, setExcludeDrafts] = useState(false);
@@ -179,6 +183,35 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
       const nextSelected = Array.from(new Set([...currentSelected, ...groupPrIds]));
       useAppStore.setState({ selectedPRIds: nextSelected });
     }
+  };
+
+  // Derive in-flight jobs (queued or running) for the Abort button
+  const activeJobs = useMemo((): AbortableJob[] => {
+    return Object.entries(rebaseJobs)
+      .filter(([, job]) => job.status === 'queued' || job.status === 'running')
+      .map(([id, job]) => {
+        const pr = prs.find(p => p.id === id);
+        return {
+          id,
+          prTitle: pr?.title ?? id,
+          repoName: pr?.repo_name ?? '',
+          status: job.status as 'queued' | 'running',
+        };
+      });
+  }, [rebaseJobs, prs]);
+
+  const handleAbortClick = () => {
+    if (activeJobs.length === 0) return;
+    if (activeJobs.length === 1) {
+      cancelRebase(activeJobs[0].id);
+    } else {
+      setAbortDialogOpen(true);
+    }
+  };
+
+  const handleAbortConfirm = (ids: string[]) => {
+    ids.forEach(id => cancelRebase(id));
+    setAbortDialogOpen(false);
   };
 
   const handleBulkRebase = async (amend: boolean, push: boolean) => {
@@ -368,6 +401,20 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
               Rebasing: {activeRebaseCount} active, {queuedRebaseCount} queued
             </span>
           )}
+          {activeJobs.length > 0 && (
+            <button
+              id="abort-jobs-button"
+              onClick={handleAbortClick}
+              title={activeJobs.length === 1 ? `Abort: ${activeJobs[0].prTitle}` : `Abort ${activeJobs.length} jobs`}
+              className="flex items-center gap-1.5 px-3 py-1.5 bg-red-900/70 hover:bg-red-700 border border-red-800/60 text-red-300 hover:text-white rounded text-xs font-semibold transition cursor-pointer ml-1"
+            >
+              <X size={13} />
+              {activeJobs.length === 1
+                ? 'Abort Job'
+                : `Abort Jobs (${activeJobs.length})`
+              }
+            </button>
+          )}
         </div>
         <div className="flex gap-2 items-center">
           <button
@@ -545,5 +592,14 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
 
     {/* Remote setup modal — shown when a selected PR's head branch lacks tracking */}
     {pendingRemoteSetup && <RemoteSetupModal setup={pendingRemoteSetup} />}
+
+    {/* Abort jobs dialog — shown when user clicks Abort with multiple jobs running */}
+    {abortDialogOpen && (
+      <AbortJobsDialog
+        jobs={activeJobs}
+        onConfirm={handleAbortConfirm}
+        onClose={() => setAbortDialogOpen(false)}
+      />
+    )}
   </>);
 };

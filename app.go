@@ -555,7 +555,7 @@ func (a *App) triggerScheduledRebaseAndPush() {
 		branchName := parts[1]
 
 		// Skip this PR if its branch is not eligible (no PR on this branch exceeds the threshold)
-		if !eligibleBranches[branchName] && !skippedDirtyBranchs[branchName] {
+		if !eligibleBranches[branchName] {
 			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
 				"\u001b[33m[SCHEDULED] Skipping PR #%d (%s/%s): branch '%s' has no PR with ahead count > 100\u001b[0m\r\n",
 				pr.Number, repo.Owner, repo.Name, branchName,
@@ -563,22 +563,32 @@ func (a *App) triggerScheduledRebaseAndPush() {
 			continue
 		}
 
+		// If a previous PR in the same branch group had a dirty repo, skip the
+		// whole remaining group without calling IsClean again.
+		if skippedDirtyBranchs[branchName] {
+			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
+				"\u001b[33m[SCHEDULED] Skipping PR #%d (%s/%s): branch group '%s' has a dirty repo\u001b[0m\r\n",
+				pr.Number, repo.Owner, repo.Name, branchName,
+			))
+			continue
+		}
+
 		// --- Git clean-status guard ---
-		// If the working tree is dirty, the user is likely actively working on this
-		// repo. Skip it to avoid interfering with uncommitted changes.
+		// If the working tree is dirty, mark the whole branch group as dirty so
+		// subsequent PRs on this branch are skipped without re-running IsClean.
 		clean, err := a.gitExecutor.IsClean(a.ctx, repo.LocalPath)
 		if err != nil {
 			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
-				"\u001b[31m[SCHEDULED] Could not check git status for %s/%s: %v — skipping\u001b[0m\r\n",
-				repo.Owner, repo.Name, err,
+				"\u001b[31m[SCHEDULED] Could not check git status for %s/%s: %v — skipping whole group for branch '%s'\u001b[0m\r\n",
+				repo.Owner, repo.Name, err, branchName,
 			))
 			skippedDirtyBranchs[branchName] = true
 			continue
 		}
 		if !clean {
 			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
-				"\u001b[33m[SCHEDULED] Skipping PR #%d (%s/%s): working tree is dirty (uncommitted changes detected)\u001b[0m\r\n",
-				pr.Number, repo.Owner, repo.Name,
+				"\u001b[33m[SCHEDULED] Dirty working tree in %s/%s — skipping whole group for branch '%s'\u001b[0m\r\n",
+				repo.Owner, repo.Name, branchName,
 			))
 			skippedDirtyBranchs[branchName] = true
 			continue

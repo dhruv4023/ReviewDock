@@ -414,3 +414,60 @@ func TestGroupPushAbortedOnRebaseFailure(t *testing.T) {
 		t.Errorf("expected force push to be aborted for both repos because repoB rebase failed")
 	}
 }
+
+func TestAbortSkipsPushNotRebase(t *testing.T) {
+	mockExecutor := &MockGitExecutor{}
+	var rebaseCompleted, pushCalled bool
+	var mu sync.Mutex
+
+	mockExecutor.rebaseFunc = func(ctx context.Context, dir string, baseBranch string, remote string, log git.LogWriter) error {
+		time.Sleep(50 * time.Millisecond)
+		mu.Lock()
+		rebaseCompleted = true
+		mu.Unlock()
+		return nil
+	}
+
+	mockExecutor.pushFunc = func(ctx context.Context, dir string, remote string, branch string, log git.LogWriter) error {
+		mu.Lock()
+		pushCalled = true
+		mu.Unlock()
+		return nil
+	}
+
+	mgr := NewManager(1, mockExecutor, nil, nil)
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	mgr.Start(ctx)
+
+	job := Job{
+		ID:        "job1",
+		RepoName:  "owner/repo1",
+		RepoPath:  "/path/repo1",
+		HeadLabel: "origin/feat1",
+		BaseLabel: "origin/main",
+		Options:   models.Settings{ForcePushAfterRebase: true},
+	}
+
+	mgr.Submit(job)
+
+	// User aborts the job while rebase is running
+	time.Sleep(10 * time.Millisecond)
+	mgr.Cancel("job1")
+
+	waitForJobsCount(mgr, 0, 500*time.Millisecond)
+	mgr.Stop()
+
+	mu.Lock()
+	rCompleted := rebaseCompleted
+	pCalled := pushCalled
+	mu.Unlock()
+
+	if !rCompleted {
+		t.Errorf("expected rebase to finish cleanly so working directory is clean")
+	}
+	if pCalled {
+		t.Errorf("expected push to be skipped when aborted by user")
+	}
+}
+
