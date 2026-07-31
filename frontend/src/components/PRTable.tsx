@@ -357,13 +357,6 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
           >
             {isRebasing ? <Loader2 size={13} className="animate-spin" /> : <Play size={13} />} Rebase + Force Push
           </button>
-          <button
-            onClick={() => handleBulkRebase(false, true)}
-            disabled={selectedPRIds.length === 0 || isRebasing}
-            className="flex items-center gap-1.5 px-3 py-1.5 bg-zinc-800 hover:bg-zinc-700 disabled:opacity-50 text-zinc-300 rounded text-xs font-semibold action-btn"
-          >
-            {isRebasing ? <Loader2 size={13} className="animate-spin" /> : null} Force Push Only
-          </button>
           {selectedPRIds.length > 0 && (
             <span className="text-xs text-gray-400 font-medium ml-2">
               {selectedPRIds.length} Selected

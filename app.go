@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"os/exec"
 	"regexp"
+	"strings"
 	"sync"
 	"time"
 
@@ -24,6 +25,8 @@ type App struct {
 	gitExecutor  *git.Executor
 	queueManager *queue.Manager
 	ghClient     *github.Client
+	lastCronRun  time.Time
+	cronMutex    sync.Mutex
 }
 
 func NewApp() *App {
@@ -65,6 +68,9 @@ func (a *App) startup(ctx context.Context) {
 	}
 	a.queueManager = queue.NewManager(settings.ConcurrencyLimit, a.gitExecutor, logCallback, statusCallback)
 	a.queueManager.Start(a.ctx)
+
+	// Start Scheduled Cron Rebase & Push check loop
+	go a.startCronScheduler()
 
 	// Log startup environment and git check
 	env := wails.Environment(a.ctx)
@@ -412,4 +418,195 @@ func (a *App) SaveReviewTemplate(template string) error {
 // IsDev returns true if the application is running in development mode.
 func (a *App) IsDev() bool {
 	return wails.Environment(a.ctx).BuildType != "production"
+}
+
+func (a *App) startCronScheduler() {
+	ticker := time.NewTicker(55 * time.Second)
+	defer ticker.Stop()
+
+	for {
+		select {
+		case <-a.ctx.Done():
+			return
+		case <-ticker.C:
+			a.checkAndTriggerCron()
+		}
+	}
+}
+
+func (a *App) checkAndTriggerCron() {
+	a.cronMutex.Lock()
+	defer a.cronMutex.Unlock()
+
+	settings, err := a.storage.ReadSettings()
+	if err != nil {
+		return
+	}
+
+	if !settings.CronEnabled || len(settings.CronTimes) == 0 {
+		return
+	}
+
+	now := time.Now()
+	// Prevent running multiple times in the same minute
+	if now.Hour() == a.lastCronRun.Hour() &&
+		now.Minute() == a.lastCronRun.Minute() &&
+		now.Year() == a.lastCronRun.Year() &&
+		now.YearDay() == a.lastCronRun.YearDay() {
+		return
+	}
+
+	// Format current time as "03:04 PM"
+	currTimeStr := strings.ToUpper(now.Format("03:04 PM"))
+
+	matched := false
+	for _, t := range settings.CronTimes {
+		if normalizeTimeStr(t) == currTimeStr {
+			matched = true
+			break
+		}
+	}
+
+	if matched {
+		a.lastCronRun = now
+		// Run trigger in a separate goroutine so it doesn't block the scheduler tick
+		go a.triggerScheduledRebaseAndPush()
+	}
+}
+
+func normalizeTimeStr(t string) string {
+	t = strings.ToUpper(strings.TrimSpace(t))
+	if len(t) == 7 && t[1] == ':' { // e.g. "9:00 AM" -> "09:00 AM"
+		return "0" + t
+	}
+	return t
+}
+
+func (a *App) triggerScheduledRebaseAndPush() {
+	wails.EventsEmit(a.ctx, "terminal:log", "\u001b[35m[SCHEDULED] Scheduled auto-rebase & force-push triggered!\u001b[0m\r\n")
+
+	prs, err := a.GetPullRequests(true)
+	if err != nil {
+		wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf("\u001b[31m[SCHEDULED] Failed fetching pull requests: %v\u001b[0m\r\n", err))
+		return
+	}
+
+	repos, err := a.storage.ReadRepos()
+	if err != nil {
+		wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf("\u001b[31m[SCHEDULED] Failed reading repositories: %v\u001b[0m\r\n", err))
+		return
+	}
+	repoMap := make(map[string]models.Repository)
+	for _, r := range repos {
+		repoMap[r.ID] = r
+	}
+
+	settings, err := a.storage.ReadSettings()
+	if err != nil {
+		settings = &models.Settings{
+			ConcurrencyLimit:     2,
+			AmendCommitTimestamp: true,
+			ForcePushAfterRebase: true,
+		}
+	}
+
+	// Ensure force push is enabled for the scheduled run
+	scheduledSettings := *settings
+	scheduledSettings.ForcePushAfterRebase = true
+
+	// --- Branch-level eligibility check ---
+	// Rule: if ANY PR sharing the same head branch name (across all repos) has
+	// AheadCount > 100, then ALL PRs on that branch must be processed — not just
+	// the one that crossed the threshold.
+	// We scan ALL PRs (open + draft) here so that a draft PR with a high ahead
+	// count can make the whole branch group eligible, and so that open PRs on the
+	// same branch also get pulled in.
+	eligibleBranches := make(map[string]bool) // key: bare branch name (no "owner/" prefix)
+	for _, pr := range prs {
+		if !strings.Contains(pr.HeadLabel, "/") {
+			continue
+		}
+		// HeadLabel is "owner/branch" — extract just the branch portion
+		parts := strings.SplitN(pr.HeadLabel, "/", 2)
+		branchName := parts[1]
+		if pr.AheadCount > 100 {
+			eligibleBranches[branchName] = true
+		}
+	}
+
+	count := 0
+	skippedDirtyBranchs := make(map[string]bool)
+	for _, pr := range prs {
+		// Determine whether this PR is a candidate:
+		//   - Always include open (non-draft) PRs.
+		//   - Include draft PRs only when CronIncludeDrafts setting is on.
+		//   - Never include closed PRs.
+		isCandidate := pr.State == "open" || (pr.IsDraft && settings.CronIncludeDrafts)
+		if !isCandidate || !strings.Contains(pr.HeadLabel, "/") {
+			continue
+		}
+
+		repo, exists := repoMap[pr.RepoID]
+		if !exists {
+			continue
+		}
+
+		parts := strings.SplitN(pr.HeadLabel, "/", 2)
+		branchName := parts[1]
+
+		// Skip this PR if its branch is not eligible (no PR on this branch exceeds the threshold)
+		if !eligibleBranches[branchName] && !skippedDirtyBranchs[branchName] {
+			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
+				"\u001b[33m[SCHEDULED] Skipping PR #%d (%s/%s): branch '%s' has no PR with ahead count > 100\u001b[0m\r\n",
+				pr.Number, repo.Owner, repo.Name, branchName,
+			))
+			continue
+		}
+
+		// --- Git clean-status guard ---
+		// If the working tree is dirty, the user is likely actively working on this
+		// repo. Skip it to avoid interfering with uncommitted changes.
+		clean, err := a.gitExecutor.IsClean(a.ctx, repo.LocalPath)
+		if err != nil {
+			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
+				"\u001b[31m[SCHEDULED] Could not check git status for %s/%s: %v — skipping\u001b[0m\r\n",
+				repo.Owner, repo.Name, err,
+			))
+			skippedDirtyBranchs[branchName] = true
+			continue
+		}
+		if !clean {
+			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
+				"\u001b[33m[SCHEDULED] Skipping PR #%d (%s/%s): working tree is dirty (uncommitted changes detected)\u001b[0m\r\n",
+				pr.Number, repo.Owner, repo.Name,
+			))
+			skippedDirtyBranchs[branchName] = true
+			continue
+		}
+
+		stateLabel := "open"
+		if pr.IsDraft {
+			stateLabel = "draft"
+		}
+		wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
+			"\u001b[36m[SCHEDULED] Queuing %s PR #%d (%s/%s) on branch '%s' (↑%d ahead)\u001b[0m\r\n",
+			stateLabel, pr.Number, repo.Owner, repo.Name, branchName, pr.AheadCount,
+		))
+
+		job := queue.Job{
+			ID:        pr.ID,
+			RepoName:  repo.Owner + "/" + repo.Name,
+			RepoPath:  repo.LocalPath,
+			HeadLabel: pr.HeadLabel,
+			BaseLabel: pr.BaseLabel,
+			Options:   scheduledSettings,
+		}
+		a.queueManager.Submit(job)
+		count++
+	}
+
+	wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
+		"\u001b[32m[SCHEDULED] Submitted %d PR auto-rebase & force-push jobs to queue (%d skipped — dirty working tree).\u001b[0m\r\n",
+		count, len(skippedDirtyBranchs),
+	))
 }

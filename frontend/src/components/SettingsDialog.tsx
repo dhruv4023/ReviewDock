@@ -1,6 +1,6 @@
-import React, { useState, useEffect, useCallback } from 'react';
+import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/appStore';
-import { X, Save, RotateCcw, Settings, Bot, SlidersHorizontal, Check, AlertTriangle } from 'lucide-react';
+import { X, Save, RotateCcw, Settings, Bot, SlidersHorizontal, Check, AlertTriangle, ChevronDown } from 'lucide-react';
 
 const DEFAULT_TEMPLATE = `You are an expert code reviewer. Please review the following pull request carefully.
 
@@ -35,6 +35,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
   const [concurrency, setConcurrency] = useState<number>(settings?.concurrency_limit ?? 3);
   const [amendTimestamp, setAmendTimestamp] = useState<boolean>(settings?.amend_commit_timestamp ?? true);
   const [forcePush, setForcePush] = useState<boolean>(settings?.force_push_after_rebase ?? false);
+  const [cronEnabled, setCronEnabled] = useState<boolean>(settings?.cron_enabled ?? false);
+  const [cronTimes, setCronTimes] = useState<string[]>(settings?.cron_times ?? []);
+  const [cronIncludeDrafts, setCronIncludeDrafts] = useState<boolean>(settings?.cron_include_drafts ?? false);
+
+  // Time picker dropdown state
+  const [newHour, setNewHour] = useState<string>('09');
+  const [newMinute, setNewMinute] = useState<string>('00');
+  const [newPeriod, setNewPeriod] = useState<string>('AM');
 
   // Template state
   const [template, setTemplate] = useState<string>('');
@@ -55,8 +63,22 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
       setConcurrency(settings.concurrency_limit);
       setAmendTimestamp(settings.amend_commit_timestamp);
       setForcePush(settings.force_push_after_rebase);
+      setCronEnabled(settings.cron_enabled ?? false);
+      setCronTimes(settings.cron_times ?? []);
+      setCronIncludeDrafts(settings.cron_include_drafts ?? false);
     }
   }, [settings]);
+
+  const handleAddCronTime = useCallback(() => {
+    const formatted = `${newHour}:${newMinute} ${newPeriod}`;
+    if (!cronTimes.includes(formatted)) {
+      setCronTimes([...cronTimes, formatted]);
+    }
+  }, [newHour, newMinute, newPeriod, cronTimes]);
+
+  const handleRemoveCronTime = useCallback((timeToRemove: string) => {
+    setCronTimes(cronTimes.filter(t => t !== timeToRemove));
+  }, [cronTimes]);
 
   const handleSaveGeneral = useCallback(async () => {
     if (!settings) return;
@@ -65,11 +87,14 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
       concurrency_limit: concurrency,
       amend_commit_timestamp: amendTimestamp,
       force_push_after_rebase: forcePush,
+      cron_enabled: cronEnabled,
+      cron_times: cronTimes,
+      cron_include_drafts: cronIncludeDrafts,
     };
     await setSettings(updated);
     setGeneralSaved(true);
     setTimeout(() => setGeneralSaved(false), 2000);
-  }, [settings, concurrency, amendTimestamp, forcePush, setSettings]);
+  }, [settings, concurrency, amendTimestamp, forcePush, cronEnabled, cronTimes, cronIncludeDrafts, setSettings]);
 
   const handleSaveTemplate = useCallback(async () => {
     setTemplateError(null);
@@ -240,7 +265,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
               <div className="w-full h-px bg-zinc-800" />
 
               {/* Toggles */}
-              {/* <div className="space-y-3">
+              <div className="space-y-4">
                 <ToggleRow
                   id="amend-timestamp-toggle"
                   label="Amend Commit Timestamp"
@@ -251,11 +276,90 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
                 <ToggleRow
                   id="force-push-toggle"
                   label="Force Push After Rebase"
-                  description="Automatically force-push the branch after a successful rebase."
+                  description="Automatically force-push the branch after a successful manual rebase."
                   checked={forcePush}
                   onChange={setForcePush}
                 />
-              </div> */}
+                <ToggleRow
+                  id="cron-enabled-toggle"
+                  label="Enable Scheduled Auto-Rebase & Push"
+                  description="Automatically check out, rebase, and force-push all tracked open branches at the scheduled times."
+                  checked={cronEnabled}
+                  onChange={setCronEnabled}
+                />
+                {cronEnabled && (
+                  <ToggleRow
+                    id="cron-include-drafts-toggle"
+                    label="Include Draft PRs in Scheduled Runs"
+                    description="When enabled, draft PRs on qualifying branches (any PR on the branch has >100 ahead commits) are also rebased and force-pushed during scheduled runs."
+                    checked={cronIncludeDrafts}
+                    onChange={setCronIncludeDrafts}
+                  />
+                )}
+              </div>
+
+              {cronEnabled && (
+                <div className="p-4 bg-[#0d1117] border border-zinc-800 rounded-lg space-y-4">
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-300">Configured Times</label>
+                    {cronTimes.length === 0 ? (
+                      <p className="text-xs text-zinc-500 italic">No scheduled times configured.</p>
+                    ) : (
+                      <div className="flex flex-wrap gap-2">
+                        {cronTimes.map(time => (
+                          <div
+                            key={time}
+                            className="flex items-center gap-1.5 px-2.5 py-1 bg-zinc-800 border border-zinc-700 text-zinc-200 rounded text-xs animate-fadeIn"
+                          >
+                            <span>{time}</span>
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveCronTime(time)}
+                              className="text-zinc-500 hover:text-red-400 font-bold transition-colors ml-1"
+                              title="Delete"
+                            >
+                              ✕
+                            </button>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="space-y-2">
+                    <label className="text-xs font-semibold text-zinc-400">Add New Time</label>
+                    <div className="flex items-center gap-2">
+                      <CustomSelect
+                        value={newHour}
+                        onChange={setNewHour}
+                        options={Array.from({ length: 12 }, (_, i) => String(i + 1).padStart(2, '0'))}
+                        widthClass="w-20"
+                      />
+                      <span className="text-zinc-500 text-xs font-bold">:</span>
+                      <CustomSelect
+                        value={newMinute}
+                        onChange={setNewMinute}
+                        options={Array.from({ length: 60 }, (_, i) => String(i).padStart(2, '0'))}
+                        widthClass="w-20"
+                      />
+                      <CustomSelect
+                        value={newPeriod}
+                        onChange={setNewPeriod}
+                        options={['AM', 'PM']}
+                        widthClass="w-24"
+                      />
+
+                      <button
+                        type="button"
+                        onClick={handleAddCronTime}
+                        className="px-3 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded text-xs font-semibold transition shrink-0"
+                      >
+                        + Add Time
+                      </button>
+                    </div>
+                  </div>
+                </div>
+              )}
 
               <div className="flex justify-end pt-1">
                 <button
@@ -283,34 +387,95 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
 
 // ── Helper sub-component ─────────────────────────────────────────────────────
 
-// interface ToggleRowProps {
-//   id: string;
-//   label: string;
-//   description: string;
-//   checked: boolean;
-//   onChange: (v: boolean) => void;
-// }
+interface ToggleRowProps {
+  id: string;
+  label: string;
+  description: string;
+  checked: boolean;
+  onChange: (v: boolean) => void;
+}
 
-// const ToggleRow: React.FC<ToggleRowProps> = ({ id, label, description, checked, onChange }) => (
-//   <div className="flex items-start justify-between gap-4">
-//     <div>
-//       <label htmlFor={id} className="text-xs font-medium text-zinc-300 cursor-pointer">{label}</label>
-//       <p className="text-[11px] text-zinc-500 mt-0.5">{description}</p>
-//     </div>
-//     <button
-//       id={id}
-//       role="switch"
-//       aria-checked={checked}
-//       onClick={() => onChange(!checked)}
-//       className={`relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200 focus:outline-none mt-0.5 ${
-//         checked ? 'bg-blue-600' : 'bg-zinc-700'
-//       }`}
-//     >
-//       <span
-//         className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
-//           checked ? 'translate-x-4' : 'translate-x-0'
-//         }`}
-//       />
-//     </button>
-//   </div>
-// );
+const ToggleRow: React.FC<ToggleRowProps> = ({ id, label, description, checked, onChange }) => (
+  <div className="flex items-start justify-between gap-4">
+    <div>
+      <label htmlFor={id} className="text-xs font-medium text-zinc-300 cursor-pointer">{label}</label>
+      <p className="text-[11px] text-zinc-500 mt-0.5">{description}</p>
+    </div>
+    <button
+      id={id}
+      role="switch"
+      aria-checked={checked}
+      onClick={() => onChange(!checked)}
+      className={`relative shrink-0 w-9 h-5 rounded-full transition-colors duration-200 focus:outline-none mt-0.5 ${
+        checked ? 'bg-blue-600' : 'bg-zinc-700'
+      }`}
+    >
+      <span
+        className={`absolute top-0.5 left-0.5 w-4 h-4 bg-white rounded-full shadow transition-transform duration-200 ${
+          checked ? 'translate-x-4' : 'translate-x-0'
+        }`}
+      />
+    </button>
+  </div>
+);
+
+// ── Custom scrollable Select Box for time selection ─────────────────────────
+
+interface CustomSelectProps {
+  value: string;
+  onChange: (val: string) => void;
+  options: string[];
+  widthClass?: string;
+}
+
+const CustomSelect: React.FC<CustomSelectProps> = ({ value, onChange, options, widthClass = 'w-16' }) => {
+  const [isOpen, setIsOpen] = useState(false);
+  const containerRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const handleOutsideClick = (e: MouseEvent) => {
+      if (containerRef.current && !containerRef.current.contains(e.target as Node)) {
+        setIsOpen(false);
+      }
+    };
+    document.addEventListener('mousedown', handleOutsideClick);
+    return () => document.removeEventListener('mousedown', handleOutsideClick);
+  }, []);
+
+  return (
+    <div className={`relative ${widthClass}`} ref={containerRef}>
+      <button
+        type="button"
+        onClick={() => setIsOpen(!isOpen)}
+        className="w-full flex items-center justify-between bg-[#0d1117] border border-zinc-700 focus:border-blue-500 rounded px-2.5 py-1 text-xs text-zinc-200 hover:bg-zinc-800 transition"
+      >
+        <span>{value}</span>
+        <ChevronDown size={12} className="text-zinc-500 shrink-0" />
+      </button>
+
+      {isOpen && (
+        <div
+          className="absolute left-0 right-0 bottom-full mb-1 bg-[#0d1117] border border-zinc-700 rounded shadow-xl z-[60] overflow-y-auto"
+          style={{ maxHeight: '96px' }} // Exact height of 3 items (each item is 32px)
+        >
+          {options.map(opt => (
+            <button
+              key={opt}
+              type="button"
+              onClick={() => {
+                onChange(opt);
+                setIsOpen(false);
+              }}
+              className={`w-full text-left px-2.5 text-xs transition hover:bg-blue-600 hover:text-white flex items-center shrink-0 ${
+                opt === value ? 'bg-zinc-800 text-blue-400 font-semibold' : 'text-zinc-300'
+              }`}
+              style={{ height: '32px' }}
+            >
+              {opt}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+};

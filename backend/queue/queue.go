@@ -96,6 +96,13 @@ func (m *Manager) Start(ctx context.Context) {
 func (m *Manager) Submit(job Job) {
 	m.mu.Lock()
 
+	for _, existing := range m.jobs {
+		if existing.ID == job.ID {
+			m.mu.Unlock()
+			return
+		}
+	}
+
 	jobCtx, cancel := context.WithCancel(m.ctx)
 	j := &Job{
 		ID:        job.ID,

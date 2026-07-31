@@ -187,6 +187,9 @@ export namespace models {
 	    amend_commit_timestamp: boolean;
 	    force_push_after_rebase: boolean;
 	    theme: string;
+	    cron_enabled: boolean;
+	    cron_times: string[];
+	    cron_include_drafts: boolean;
 	
 	    static createFrom(source: any = {}) {
 	        return new Settings(source);
@@ -198,6 +201,9 @@ export namespace models {
 	        this.amend_commit_timestamp = source["amend_commit_timestamp"];
 	        this.force_push_after_rebase = source["force_push_after_rebase"];
 	        this.theme = source["theme"];
+	        this.cron_enabled = source["cron_enabled"];
+	        this.cron_times = source["cron_times"];
+	        this.cron_include_drafts = source["cron_include_drafts"];
 	    }
 	}
 

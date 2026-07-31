@@ -87,6 +87,10 @@ export interface Settings {
   amend_commit_timestamp: boolean;
   force_push_after_rebase: boolean;
   theme: string;
+  cron_enabled: boolean;
+  cron_times: string[];
+  /** When true, draft PRs are included in scheduled auto-rebase runs. */
+  cron_include_drafts: boolean;
 }
 
 export interface RebaseRequest {
@@ -347,7 +351,15 @@ export const useAppStore = create<AppState>((set, get) => ({
     const targets = prs.filter(pr => selectedPRIds.includes(pr.id));
     if (targets.length === 0) return;
 
-    const requests: RebaseRequest[] = targets.map(pr => ({
+    // Sort by head_branch so all PRs on the same branch are submitted
+    // contiguously — the backend group coordinator groups by branch name and
+    // only triggers a coordinated force-push once ALL members have rebased.
+    // Submitting them together maximises the chance they are grouped correctly.
+    const sorted = [...targets].sort((a, b) =>
+      (a.head_branch || '').localeCompare(b.head_branch || '')
+    );
+
+    const requests: RebaseRequest[] = sorted.map(pr => ({
       id: pr.id,
       repo_id: pr.repo_id,
       head_label: pr.head_label,

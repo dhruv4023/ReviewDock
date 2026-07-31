@@ -49,10 +49,13 @@ type Session struct {
 }
 
 type Settings struct {
-	ConcurrencyLimit     int    `json:"concurrency_limit"`
-	AmendCommitTimestamp bool   `json:"amend_commit_timestamp"`
-	ForcePushAfterRebase bool   `json:"force_push_after_rebase"`
-	Theme                string `json:"theme"`
+	ConcurrencyLimit     int      `json:"concurrency_limit"`
+	AmendCommitTimestamp bool     `json:"amend_commit_timestamp"`
+	ForcePushAfterRebase bool     `json:"force_push_after_rebase"`
+	Theme                string   `json:"theme"`
+	CronEnabled          bool     `json:"cron_enabled"`
+	CronTimes            []string `json:"cron_times"`
+	CronIncludeDrafts bool `json:"cron_include_drafts"`
 }
 
 type RebaseRequest struct {
