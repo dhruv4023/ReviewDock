@@ -102,40 +102,71 @@ func (m *Manager) Start(ctx context.Context) {
 }
 
 func (m *Manager) Submit(job Job) {
+	m.SubmitBatch([]Job{job})
+}
+
+// SubmitBatch atomically registers ALL jobs in branchGroups before launching
+// any goroutines. This is the correct way to submit a group of PRs that share
+// a branch name: it guarantees that when the first job's goroutine runs its
+// group-coordination check, the full group is already visible in branchGroups —
+// preventing the race where a fast-rebasing job sees a group size of 1 and
+// pushes immediately before its siblings are even registered.
+func (m *Manager) SubmitBatch(jobs []Job) {
 	m.mu.Lock()
 
-	for _, existing := range m.jobs {
-		if existing.ID == job.ID {
-			m.mu.Unlock()
-			return
+	// Phase 1: Register all jobs (build the complete branchGroups picture)
+	// before launching any goroutines.
+	var toStart []*Job
+	for _, job := range jobs {
+		// Deduplicate: skip if already queued.
+		alreadyQueued := false
+		for _, existing := range m.jobs {
+			if existing.ID == job.ID {
+				alreadyQueued = true
+				break
+			}
 		}
+		if alreadyQueued {
+			continue
+		}
+
+		jobCtx, cancel := context.WithCancel(m.ctx)
+		j := &Job{
+			ID:        job.ID,
+			RepoName:  job.RepoName,
+			RepoPath:  job.RepoPath,
+			HeadLabel: job.HeadLabel,
+			BaseLabel: job.BaseLabel,
+			Options:   job.Options,
+			State:     statePending,
+			JobCtx:    jobCtx,
+			Cancel:    cancel,
+		}
+		m.jobs = append(m.jobs, j)
+
+		// Register in the branch group registry.
+		branch := j.GetBranchName()
+		m.branchGroups[branch] = append(m.branchGroups[branch], j)
+
+		m.log(fmt.Sprintf("\u001b[33m[%s] Queued PR branch '%s' for rebasing onto '%s'\u001b[0m\r\n", j.RepoName, j.HeadLabel, j.BaseLabel))
+		m.reportStatusLocked(j.ID, "queued", "")
+
+		toStart = append(toStart, j)
 	}
 
-	jobCtx, cancel := context.WithCancel(m.ctx)
-	j := &Job{
-		ID:        job.ID,
-		RepoName:  job.RepoName,
-		RepoPath:  job.RepoPath,
-		HeadLabel: job.HeadLabel,
-		BaseLabel: job.BaseLabel,
-		Options:   job.Options,
-		State:     statePending,
-		JobCtx:    jobCtx,
-		Cancel:    cancel,
+	// Phase 2: Bump wg count for all new jobs while still holding the lock,
+	// then release the lock before starting goroutines.
+	for range toStart {
+		m.wg.Add(1)
 	}
-	m.jobs = append(m.jobs, j)
-
-	// Register in the branch group registry.
-	branch := j.GetBranchName()
-	m.branchGroups[branch] = append(m.branchGroups[branch], j)
-
-	m.log(fmt.Sprintf("\u001b[33m[%s] Queued PR branch '%s' for rebasing onto '%s'\u001b[0m\r\n", j.RepoName, j.HeadLabel, j.BaseLabel))
-	m.reportStatusLocked(j.ID, "queued", "")
-
-	m.wg.Add(1)
-	go m.processJob(j)
 
 	m.mu.Unlock()
+
+	// Phase 3: Launch goroutines AFTER the lock is released. All branchGroups
+	// entries are already populated, so every job sees the full group size.
+	for _, j := range toStart {
+		go m.processJob(j)
+	}
 }
 
 func (m *Manager) Cancel(jobID string) {

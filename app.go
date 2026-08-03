@@ -316,23 +316,28 @@ func (a *App) RebasePRs(requests []models.RebaseRequest) error {
 		repoMap[r.ID] = r
 	}
 
+	var jobs []queue.Job
 	for _, req := range requests {
 		repo, exists := repoMap[req.RepoID]
 		if !exists {
 			continue
 		}
 		logger.Infof("%v | %v", req, repo)
-		job := queue.Job{
+		jobs = append(jobs, queue.Job{
 			ID:        req.ID,
 			RepoName:  repo.Owner + "/" + repo.Name,
 			RepoPath:  repo.LocalPath,
 			HeadLabel: req.HeadLabel,
 			BaseLabel: req.BaseLabel,
 			Options:   *settings,
-		}
-
-		a.queueManager.Submit(job)
+		})
 	}
+
+	// Submit all jobs atomically so the branch-group registry is fully
+	// populated before any goroutine runs its group-coordination check.
+	// This prevents the race where a fast-rebasing job sees a group size
+	// of 1 and pushes immediately before its siblings are registered.
+	a.queueManager.SubmitBatch(jobs)
 
 	return nil
 }
