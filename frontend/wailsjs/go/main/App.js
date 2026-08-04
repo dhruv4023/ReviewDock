@@ -10,12 +10,20 @@ export function CancelRebase(arg1) {
   return window['go']['main']['App']['CancelRebase'](arg1);
 }
 
+export function GetDashboardStats(arg1) {
+  return window['go']['main']['App']['GetDashboardStats'](arg1);
+}
+
 export function GetPRCIStatus(arg1, arg2) {
   return window['go']['main']['App']['GetPRCIStatus'](arg1, arg2);
 }
 
 export function GetPRDiff(arg1, arg2, arg3) {
   return window['go']['main']['App']['GetPRDiff'](arg1, arg2, arg3);
+}
+
+export function GetPRStats(arg1, arg2, arg3, arg4, arg5) {
+  return window['go']['main']['App']['GetPRStats'](arg1, arg2, arg3, arg4, arg5);
 }
 
 export function GetPullRequests(arg1) {

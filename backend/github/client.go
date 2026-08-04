@@ -35,40 +35,54 @@ func (c *Client) run(ctx context.Context, args ...string) ([]byte, error) {
 	return out, nil
 }
 
-// FetchPRs retrieves open pull requests authored by the authenticated user for a repo.
+// FetchPRs retrieves pull requests (all states) authored by the authenticated user for a repo.
 func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath string) ([]models.PullRequest, error) {
 	logger.Infof("Fetching PRs for %s/%s via gh CLI", owner, repo)
 
-	const fields = "number,title,state,url,updatedAt,body,headRefName,baseRefName,isDraft,mergeable,headRepositoryOwner,headRepository"
+	const fields = "number,title,state,url,updatedAt,createdAt,body,headRefName,baseRefName," +
+		"isDraft,mergeable,headRepositoryOwner,headRepository,author,labels,reviewRequests"
 
 	out, err := c.run(ctx, "pr", "list",
 		"--repo", fmt.Sprintf("%s/%s", owner, repo),
 		"--author", "@me",
-		"--state", "open",
-		"--limit", "50",
+		"--state", "all",
+		"--limit", "100",
 		"--json", fields,
 	)
 	if err != nil {
 		return nil, err
 	}
 
+	type ghReviewRequest struct {
+		Login string `json:"login"`
+	}
+	type ghLabel struct {
+		Name string `json:"name"`
+	}
+	type ghAuthor struct {
+		Login string `json:"login"`
+	}
 	type ghPR struct {
-		Number              int    `json:"number"`
-		Title               string `json:"title"`
-		State               string `json:"state"`
-		URL                 string `json:"url"`
-		UpdatedAt           string `json:"updatedAt"`
-		Body                string `json:"body"`
-		HeadRefName         string `json:"headRefName"`
-		BaseRefName         string `json:"baseRefName"`
-		IsDraft             bool   `json:"isDraft"`
-		Mergeable           string `json:"mergeable"`
+		Number              int              `json:"number"`
+		Title               string           `json:"title"`
+		State               string           `json:"state"`
+		URL                 string           `json:"url"`
+		UpdatedAt           string           `json:"updatedAt"`
+		CreatedAt           string           `json:"createdAt"`
+		Body                string           `json:"body"`
+		HeadRefName         string           `json:"headRefName"`
+		BaseRefName         string           `json:"baseRefName"`
+		IsDraft             bool             `json:"isDraft"`
+		Mergeable           string           `json:"mergeable"`
 		HeadRepositoryOwner struct {
 			Login string `json:"login"`
 		} `json:"headRepositoryOwner"`
 		HeadRepository struct {
 			Name string `json:"name"`
 		} `json:"headRepository"`
+		Author         ghAuthor          `json:"author"`
+		Labels         []ghLabel         `json:"labels"`
+		ReviewRequests []ghReviewRequest `json:"reviewRequests"`
 	}
 
 	var items []ghPR
@@ -82,6 +96,7 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 	var result []models.PullRequest
 	for _, item := range items {
 		updatedAt, _ := time.Parse(time.RFC3339, item.UpdatedAt)
+		createdAt, _ := time.Parse(time.RFC3339, item.CreatedAt)
 
 		headLabel := item.HeadRefName
 		if upstream, err := git.GetUpstreamByBranch(ctx, localPath, item.HeadRefName); err == nil {
@@ -97,18 +112,18 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 			logger.Errorf("Failed to get upstream for branch %s: %v", item.BaseRefName, err)
 		}
 
-		localAhead, localBehind, err := git.LocalAheadBehind(ctx, localPath, baseLabel, item.HeadRefName)
-		if err != nil {
-			logger.Errorf("Failed to get ahead/behind counts for branch %s: %v", item.BaseRefName, err)
-		}
-
-		ahead, behind, err := git.LocalAheadBehind(ctx, localPath, baseLabel, headLabel)
-		if err != nil {
-			logger.Errorf("Failed to get ahead/behind counts for branch %s: %v", item.BaseRefName, err)
+		// Skip ahead/behind computation for closed/merged PRs since the branch
+		// may have been deleted on the remote after merging.
+		var localAhead, localBehind, ahead, behind int
+		if strings.ToLower(item.State) == "open" || item.IsDraft {
+			localAhead, localBehind, _ = git.LocalAheadBehind(ctx, localPath, baseLabel, item.HeadRefName)
+			ahead, behind, _ = git.LocalAheadBehind(ctx, localPath, baseLabel, headLabel)
 		}
 
 		state := strings.ToLower(item.State)
-		if item.IsDraft {
+		// A draft is only meaningful for open PRs — closed/merged drafts should
+		// appear under the 'closed' state so they don't pollute the draft view.
+		if item.IsDraft && state == "open" {
 			state = "draft"
 		}
 
@@ -120,26 +135,42 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 			mergeableStatus = "conflicting"
 		}
 
+		// Collect labels (name only).
+		labels := make([]string, 0, len(item.Labels))
+		for _, l := range item.Labels {
+			labels = append(labels, l.Name)
+		}
+
+		// Collect requested reviewers (login only).
+		requestedReviewers := make([]string, 0, len(item.ReviewRequests))
+		for _, rr := range item.ReviewRequests {
+			requestedReviewers = append(requestedReviewers, rr.Login)
+		}
+
 		pr := models.PullRequest{
-			ID:               fmt.Sprintf("%s-%d", repoID, item.Number),
-			Number:           item.Number,
-			Title:            item.Title,
-			RepoID:           repoID,
-			RepoName:         repoName,
-			BaseBranch:       item.BaseRefName,
-			HeadBranch:       item.HeadRefName,
-			BaseLabel:        baseLabel,
-			HeadLabel:        headLabel,
-			State:            state,
-			IsDraft:          item.IsDraft,
-			UpdatedAt:        updatedAt,
-			MergeableStatus:  mergeableStatus,
-			AheadCount:       ahead,
-			BehindCount:      behind,
-			LocalAheadCount:  localAhead,
-			LocalBehindCount: localBehind,
-			HTMLURL:          item.URL,
-			Description:      item.Body,
+			ID:                 fmt.Sprintf("%s-%d", repoID, item.Number),
+			Number:             item.Number,
+			Title:              item.Title,
+			RepoID:             repoID,
+			RepoName:           repoName,
+			BaseBranch:         item.BaseRefName,
+			HeadBranch:         item.HeadRefName,
+			BaseLabel:          baseLabel,
+			HeadLabel:          headLabel,
+			State:              state,
+			IsDraft:            item.IsDraft,
+			CreatedAt:          createdAt,
+			UpdatedAt:          updatedAt,
+			MergeableStatus:    mergeableStatus,
+			AheadCount:         ahead,
+			BehindCount:        behind,
+			LocalAheadCount:    localAhead,
+			LocalBehindCount:   localBehind,
+			HTMLURL:            item.URL,
+			Description:        item.Body,
+			Author:             item.Author.Login,
+			Labels:             labels,
+			RequestedReviewers: requestedReviewers,
 		}
 
 		result = append(result, pr)
@@ -151,6 +182,7 @@ func (c *Client) FetchPRs(ctx context.Context, owner, repo string, localPath str
 
 	return result, nil
 }
+
 
 // FetchCombinedCIStatus returns an aggregated CI result for the given head ref.
 // Uses `gh api` because no gh command surfaces check-runs by arbitrary ref.

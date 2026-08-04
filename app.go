@@ -15,6 +15,7 @@ import (
 	"review-dock/backend/github"
 	"review-dock/backend/models"
 	"review-dock/backend/queue"
+	"review-dock/backend/stats"
 	"review-dock/backend/storage"
 	"review-dock/logger"
 )
@@ -25,6 +26,7 @@ type App struct {
 	gitExecutor  *git.Executor
 	queueManager *queue.Manager
 	ghClient     *github.Client
+	statsCache   *stats.CacheService
 	lastCronRun  time.Time
 	cronMutex    sync.Mutex
 }
@@ -40,11 +42,14 @@ func (a *App) startup(ctx context.Context) {
 	a.ctx = ctx
 
 	// Initialize Storage
-	store, err := storage.NewService("review-dock-manager")
+	store, err := storage.NewService("review-dock")
 	if err != nil {
 		wails.LogErrorf(a.ctx, "Failed initializing storage: %v", err)
 	}
 	a.storage = store
+
+	// Initialize Stats Cache (co-located with other storage files)
+	a.statsCache = stats.NewCacheService(store.DataDir())
 
 	// Load Settings
 	settings, err := a.storage.ReadSettings()
@@ -424,6 +429,164 @@ func (a *App) SaveReviewTemplate(template string) error {
 func (a *App) IsDev() bool {
 	return wails.Environment(a.ctx).BuildType != "production"
 }
+
+// GetPRStats returns computed statistics for the given PR, using a local cache
+// keyed by PR ID.  The cache is considered fresh when the PR's updated_at has
+// not changed since the last computation; otherwise stats are recomputed and
+// the cache is updated transparently.
+func (a *App) GetPRStats(prID, repoID string, prNumber int, prUpdatedAt, _ string) (*stats.PRStats, error) {
+	updatedAt, _ := time.Parse(time.RFC3339, prUpdatedAt)
+
+	// --- Cache read ---
+	if entry, ok := a.statsCache.Get(prID); ok {
+		if entry.PRUpdatedAt.Equal(updatedAt) {
+			s := entry.Stats
+			s.FromCache = true
+			return &s, nil
+		}
+	}
+
+	// --- Resolve repository owner/name ---
+	repos, err := a.storage.ReadRepos()
+	if err != nil {
+		return nil, fmt.Errorf("reading repos: %w", err)
+	}
+	var targetRepo *models.Repository
+	for i := range repos {
+		if repos[i].ID == repoID {
+			targetRepo = &repos[i]
+			break
+		}
+	}
+	if targetRepo == nil {
+		return nil, fmt.Errorf("repository not found: %s", repoID)
+	}
+
+	// --- Compute fresh stats ---
+	result, err := stats.ComputePRStats(a.ctx, targetRepo.Owner, targetRepo.Name, prNumber)
+	if err != nil {
+		return nil, err
+	}
+
+	// --- Persist to cache (best-effort) ---
+	_ = a.statsCache.Set(prID, stats.PRStatsCache{
+		PRUpdatedAt: updatedAt,
+		Stats:       *result,
+	})
+
+	return result, nil
+}
+
+// GetDashboardStats aggregates statistics across all provided pull requests,
+// leveraging the existing per-PR stats cache.  Only PRs whose updated_at has
+// changed since the last cache entry are recomputed via the GitHub API.
+func (a *App) GetDashboardStats(inputs []stats.PRDashboardInput) (*stats.DashboardStats, error) {
+	if a.statsCache == nil {
+		return nil, fmt.Errorf("stats cache not initialised")
+	}
+
+	repos, err := a.storage.ReadRepos()
+	if err != nil {
+		return nil, fmt.Errorf("reading repos: %w", err)
+	}
+	repoMap := make(map[string]models.Repository)
+	for _, r := range repos {
+		repoMap[r.ID] = r
+	}
+
+	dashboard := &stats.DashboardStats{
+		ReviewerActivity: make(map[string]stats.ReviewerSummary),
+		PRsByRepo:        make(map[string]int),
+		PRsByMonth:       make(map[string]int),
+		LastUpdated:      time.Now(),
+	}
+
+	var totalAgeDays float64
+	ageCount := 0
+
+	for _, input := range inputs {
+		dashboard.TotalPRs++
+
+		switch input.State {
+		case "open":
+			dashboard.OpenPRs++
+		case "draft":
+			dashboard.DraftPRs++
+		case "closed":
+			dashboard.ClosedPRs++
+		}
+
+		dashboard.PRsByRepo[input.RepoName]++
+
+		if input.CreatedAt != "" {
+			if t, parseErr := time.Parse(time.RFC3339, input.CreatedAt); parseErr == nil {
+				dashboard.PRsByMonth[t.Format("2006-01")]++
+			}
+		}
+
+		// ---- Per-PR stats (cache-first) ----
+		updatedAt, _ := time.Parse(time.RFC3339, input.UpdatedAt)
+
+		var prStats *stats.PRStats
+		if entry, ok := a.statsCache.Get(input.ID); ok && entry.PRUpdatedAt.Equal(updatedAt) {
+			s := entry.Stats
+			prStats = &s
+			dashboard.CacheHits++
+		} else {
+			repo, exists := repoMap[input.RepoID]
+			if !exists {
+				continue
+			}
+			computed, computeErr := stats.ComputePRStats(a.ctx, repo.Owner, repo.Name, input.Number)
+			if computeErr != nil {
+				wails.LogWarningf(a.ctx, "dashboard: skipping PR #%d: %v", input.Number, computeErr)
+				continue
+			}
+			_ = a.statsCache.Set(input.ID, stats.PRStatsCache{
+				PRUpdatedAt: updatedAt,
+				Stats:       *computed,
+			})
+			prStats = computed
+			dashboard.StaleRecomputed++
+		}
+
+		// ---- Aggregate ----
+		dashboard.TotalComments += prStats.TotalComments
+		dashboard.TotalCommits += prStats.Commits
+		dashboard.TotalAdditions += prStats.Additions
+		dashboard.TotalDeletions += prStats.Deletions
+		if prStats.DirectlyMerged {
+			dashboard.DirectlyMergedCount++
+		}
+		totalAgeDays += prStats.PRAgeDays
+		ageCount++
+
+		for reviewer, state := range prStats.ReviewerStates {
+			s := dashboard.ReviewerActivity[reviewer]
+			switch state {
+			case "APPROVED":
+				s.Approved++
+			case "CHANGES_REQUESTED":
+				s.ChangesRequested++
+			case "COMMENTED":
+				s.Commented++
+			}
+			dashboard.ReviewerActivity[reviewer] = s
+		}
+		for reviewer, count := range prStats.ReviewCommentsByReviewer {
+			s := dashboard.ReviewerActivity[reviewer]
+			s.TotalComments += count
+			dashboard.ReviewerActivity[reviewer] = s
+		}
+	}
+
+	if ageCount > 0 {
+		dashboard.AvgPRAgeDays = totalAgeDays / float64(ageCount)
+	}
+
+	return dashboard, nil
+}
+
 
 func (a *App) startCronScheduler() {
 	ticker := time.NewTicker(55 * time.Second)

@@ -12,26 +12,30 @@ type Repository struct {
 }
 
 type PullRequest struct {
-	ID               string    `json:"id"`
-	Number           int       `json:"number"`
-	Title            string    `json:"title"`
-	RepoID           string    `json:"repo_id"`
-	RepoName         string    `json:"repo_name"`
-	BaseBranch       string    `json:"base_branch"`
-	HeadBranch       string    `json:"head_branch"`
-	BaseLabel        string    `json:"base_label"`
-	HeadLabel        string    `json:"head_label"`
-	State            string    `json:"state"` // "open", "closed", "draft"
-	IsDraft          bool      `json:"is_draft"`
-	UpdatedAt        time.Time `json:"updated_at"`
-	AheadCount       int       `json:"ahead_count"`        // local branch commits not on remote
-	BehindCount      int       `json:"behind_count"`       // remote tracking commits not in local
-	LocalAheadCount  int       `json:"local_ahead_count"`  // local branch commits not on remote
-	LocalBehindCount int       `json:"local_behind_count"` // remote tracking commits not in local
-	MergeableStatus  string    `json:"mergeable_status"`   // "mergeable", "conflicting", "unknown"
-	HTMLURL          string    `json:"html_url"`
-	Description      string    `json:"description"`
-	CIStatus         string    `json:"ci_status"` // "success", "failure", "running", "none", "unknown"
+	ID                 string    `json:"id"`
+	Number             int       `json:"number"`
+	Title              string    `json:"title"`
+	RepoID             string    `json:"repo_id"`
+	RepoName           string    `json:"repo_name"`
+	BaseBranch         string    `json:"base_branch"`
+	HeadBranch         string    `json:"head_branch"`
+	BaseLabel          string    `json:"base_label"`
+	HeadLabel          string    `json:"head_label"`
+	State              string    `json:"state"` // "open", "closed", "draft"
+	IsDraft            bool      `json:"is_draft"`
+	CreatedAt          time.Time `json:"created_at"`
+	UpdatedAt          time.Time `json:"updated_at"`
+	AheadCount         int       `json:"ahead_count"`        // local branch commits not on remote
+	BehindCount        int       `json:"behind_count"`       // remote tracking commits not in local
+	LocalAheadCount    int       `json:"local_ahead_count"`  // local branch commits not on remote
+	LocalBehindCount   int       `json:"local_behind_count"` // remote tracking commits not in local
+	MergeableStatus    string    `json:"mergeable_status"`   // "mergeable", "conflicting", "unknown"
+	HTMLURL            string    `json:"html_url"`
+	Description        string    `json:"description"`
+	CIStatus           string    `json:"ci_status"` // "success", "failure", "running", "none", "unknown"
+	Author             string    `json:"author"`
+	Labels             []string  `json:"labels"`
+	RequestedReviewers []string  `json:"requested_reviewers"`
 }
 
 type User struct {

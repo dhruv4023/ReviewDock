@@ -34,7 +34,7 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
 
   const [abortDialogOpen, setAbortDialogOpen] = useState(false);
 
-  const [stateFilter, setStateFilter] = useState<'open' | 'draft' | 'closed' | 'all'>('all');
+  const [stateFilter, setStateFilter] = useState<'open' | 'draft' | 'merged' | 'closed' | 'all'>('open');
   const [excludeDrafts, setExcludeDrafts] = useState(false);
   const [repoFilter, setRepoFilter] = useState<string>('all');
   const [search, setSearch] = useState('');
@@ -128,7 +128,11 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
       if (stateFilter === 'open') {
         matchesState = pr.state === 'open' && !pr.is_draft;
       } else if (stateFilter === 'draft') {
-        matchesState = pr.is_draft;
+        // Only show PRs that are currently open AND draft — closed/merged drafts
+        // belong in 'closed' / 'merged' views, not here.
+        matchesState = pr.state === 'draft' || (pr.is_draft && pr.state !== 'closed' && pr.state !== 'merged');
+      } else if (stateFilter === 'merged') {
+        matchesState = pr.state === 'merged';
       } else if (stateFilter === 'closed') {
         matchesState = pr.state === 'closed';
       }
@@ -461,7 +465,7 @@ export const PRTable: React.FC<PRTableProps> = ({ onRowClick }) => {
         </div>
 
         <div className="flex items-center gap-1.5 border border-zinc-800 rounded p-0.5 bg-[#0d1117]">
-          {(['open', 'draft', 'closed', 'all'] as const).map(state => (
+          {(['open', 'draft', 'merged', 'closed', 'all'] as const).map(state => (
             <button
               key={state}
               onClick={() => setStateFilter(state)}

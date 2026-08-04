@@ -24,6 +24,8 @@ declare global {
           GetReviewTemplate(): Promise<string>;
           SaveReviewTemplate(template: string): Promise<void>;
           IsDev(): Promise<boolean>;
+          GetPRStats(prID: string, repoID: string, prNumber: number, prUpdatedAt: string, author: string): Promise<PRStats>;
+          GetDashboardStats(inputs: PRDashboardInput[]): Promise<DashboardStats>;
         };
       };
     };
@@ -68,8 +70,9 @@ export interface PullRequest {
   repo_name: string;
   base_branch: string;
   head_branch: string;
-  state: 'open' | 'closed' | 'draft';
+  state: 'open' | 'closed' | 'draft' | 'merged';
   is_draft: boolean;
+  created_at: string;
   updated_at: string;
   behind_count: number;
   ahead_count: number;
@@ -80,6 +83,70 @@ export interface PullRequest {
   base_label: string;
   head_label: string;
   description: string;
+  author: string;
+  labels: string[];
+  requested_reviewers: string[];
+}
+
+/** Computed statistics for a single pull request, returned by GetPRStats. */
+export interface PRStats {
+  total_comments: number;
+  pr_conversation_comments: number; // issue/timeline comments on the PR
+  review_comments: number;
+  author_replies: number;
+  review_comments_by_reviewer: Record<string, number>;
+  reviewer_states: Record<string, string>; // APPROVED / CHANGES_REQUESTED / COMMENTED / DISMISSED
+  commits: number;
+  changed_files: number;
+  additions: number;
+  deletions: number;
+  directly_merged: boolean;
+  pr_age_days: number;
+  labels: string[];
+  author: string;
+  created_at: string;
+  last_updated: string;
+  from_cache: boolean;
+}
+
+/** Activity summary for one reviewer across all tracked PRs (used in DashboardStats). */
+export interface ReviewerSummary {
+  approved: number;
+  changes_requested: number;
+  commented: number;
+  total_comments: number;
+}
+
+/** Aggregate statistics across all tracked pull requests. */
+export interface DashboardStats {
+  total_prs: number;
+  open_prs: number;
+  draft_prs: number;
+  closed_prs: number;
+  total_comments: number;
+  total_commits: number;
+  total_additions: number;
+  total_deletions: number;
+  directly_merged_count: number;
+  avg_pr_age_days: number;
+  reviewer_activity: Record<string, ReviewerSummary>;
+  prs_by_repo: Record<string, number>;
+  prs_by_month: Record<string, number>; // "2024-01" → count
+  stale_recomputed: number;
+  cache_hits: number;
+  last_updated: string;
+}
+
+/** Minimal PR data sent to the backend when requesting dashboard statistics. */
+interface PRDashboardInput {
+  id: string;
+  repo_id: string;
+  number: number;
+  updated_at: string;
+  created_at: string;
+  state: string;
+  is_draft: boolean;
+  repo_name: string;
 }
 
 export interface Settings {
@@ -139,6 +206,14 @@ interface AppState {
   pendingRemoteSetup: PendingRemoteSetup | null;
   /** The current PR review prompt template (empty string = use default). */
   reviewTemplate: string;
+  /** Statistics for the currently-selected PR (null until fetched). */
+  prStats: PRStats | null;
+  /** True while GetPRStats is in-flight. */
+  isPRStatsLoading: boolean;
+  /** Aggregate dashboard stats across all PRs (null until first fetch). */
+  dashboardStats: DashboardStats | null;
+  /** True while GetDashboardStats is in-flight. */
+  isDashboardLoading: boolean;
 
   // Actions
   init: () => Promise<void>;
@@ -167,6 +242,12 @@ interface AppState {
   fetchReviewTemplate: () => Promise<void>;
   /** Saves the review template to the backend and updates the store. */
   saveReviewTemplate: (template: string) => Promise<void>;
+  /** Fetches (or loads from cache) statistics for the given PR. */
+  fetchPRStats: (pr: PullRequest) => Promise<void>;
+  /** Clears the current PR stats (called on PR deselect or manual refresh). */
+  clearPRStats: () => void;
+  /** Fetches aggregate dashboard stats (incremental: only recomputes stale PRs). */
+  fetchDashboardStats: () => Promise<void>;
 }
 
 export const useAppStore = create<AppState>((set, get) => ({
@@ -188,6 +269,10 @@ export const useAppStore = create<AppState>((set, get) => ({
   oauthError: null,
   pendingRemoteSetup: null,
   reviewTemplate: '',
+  prStats: null,
+  isPRStatsLoading: false,
+  dashboardStats: null,
+  isDashboardLoading: false,
 
   init: async () => {
     try {
@@ -329,7 +414,7 @@ export const useAppStore = create<AppState>((set, get) => ({
     }
   },
 
-  setSelectedPR: (pr) => set({ selectedPR: pr }),
+  setSelectedPR: (pr) => set({ selectedPR: pr, prStats: null, isPRStatsLoading: false }),
 
   toggleSelectPR: (prId) => {
     const selected = get().selectedPRIds;
@@ -517,6 +602,50 @@ export const useAppStore = create<AppState>((set, get) => ({
     } catch (err) {
       console.error('Failed to save review template', err);
       throw err;
+    }
+  },
+
+  fetchPRStats: async (pr: PullRequest) => {
+    if (!window.go?.main?.App) return;
+    set({ isPRStatsLoading: true });
+    try {
+      const result = await window.go.main.App.GetPRStats(
+        pr.id,
+        pr.repo_id,
+        pr.number,
+        pr.updated_at,
+        pr.author ?? '',
+      );
+      set({ prStats: result, isPRStatsLoading: false });
+    } catch (err) {
+      console.error('Failed to fetch PR stats', err);
+      set({ isPRStatsLoading: false });
+    }
+  },
+
+  clearPRStats: () => set({ prStats: null, isPRStatsLoading: false }),
+
+  fetchDashboardStats: async () => {
+    if (!window.go?.main?.App) return;
+    const { prs } = get();
+    if (!prs.length) return;
+    set({ isDashboardLoading: true });
+    try {
+      const inputs: PRDashboardInput[] = prs.map(pr => ({
+        id: pr.id,
+        repo_id: pr.repo_id,
+        number: pr.number,
+        updated_at: pr.updated_at,
+        created_at: pr.created_at,
+        state: pr.state,
+        is_draft: pr.is_draft,
+        repo_name: pr.repo_name,
+      }));
+      const result = await window.go.main.App.GetDashboardStats(inputs);
+      set({ dashboardStats: result, isDashboardLoading: false });
+    } catch (err) {
+      console.error('Failed to fetch dashboard stats', err);
+      set({ isDashboardLoading: false });
     }
   },
 }));

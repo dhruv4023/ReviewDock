@@ -41,6 +41,13 @@ func (s *Service) getLock() *flock.Flock {
 	return flock.New(s.lockPath)
 }
 
+// DataDir returns the path to the storage data directory.
+// External services (e.g. the stats cache) can use this to co-locate their
+// own files in the same directory without duplicating config-dir logic.
+func (s *Service) DataDir() string {
+	return s.dataDir
+}
+
 func (s *Service) ReadRepos() ([]models.Repository, error) {
 	s.mu.RLock()
 	defer s.mu.RUnlock()

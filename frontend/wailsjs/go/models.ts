@@ -13,6 +13,8 @@ export namespace models {
 	    state: string;
 	    is_draft: boolean;
 	    // Go type: time
+	    created_at: any;
+	    // Go type: time
 	    updated_at: any;
 	    ahead_count: number;
 	    behind_count: number;
@@ -22,6 +24,9 @@ export namespace models {
 	    html_url: string;
 	    description: string;
 	    ci_status: string;
+	    author: string;
+	    labels: string[];
+	    requested_reviewers: string[];
 	
 	    static createFrom(source: any = {}) {
 	        return new PullRequest(source);
@@ -40,6 +45,7 @@ export namespace models {
 	        this.head_label = source["head_label"];
 	        this.state = source["state"];
 	        this.is_draft = source["is_draft"];
+	        this.created_at = this.convertValues(source["created_at"], null);
 	        this.updated_at = this.convertValues(source["updated_at"], null);
 	        this.ahead_count = source["ahead_count"];
 	        this.behind_count = source["behind_count"];
@@ -49,6 +55,9 @@ export namespace models {
 	        this.html_url = source["html_url"];
 	        this.description = source["description"];
 	        this.ci_status = source["ci_status"];
+	        this.author = source["author"];
+	        this.labels = source["labels"];
+	        this.requested_reviewers = source["requested_reviewers"];
 	    }
 	
 		convertValues(a: any, classs: any, asMap: boolean = false): any {
@@ -205,6 +214,179 @@ export namespace models {
 	        this.cron_times = source["cron_times"];
 	        this.cron_include_drafts = source["cron_include_drafts"];
 	    }
+	}
+
+}
+
+export namespace stats {
+	
+	export class ReviewerSummary {
+	    approved: number;
+	    changes_requested: number;
+	    commented: number;
+	    total_comments: number;
+	
+	    static createFrom(source: any = {}) {
+	        return new ReviewerSummary(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.approved = source["approved"];
+	        this.changes_requested = source["changes_requested"];
+	        this.commented = source["commented"];
+	        this.total_comments = source["total_comments"];
+	    }
+	}
+	export class DashboardStats {
+	    total_prs: number;
+	    open_prs: number;
+	    draft_prs: number;
+	    closed_prs: number;
+	    total_comments: number;
+	    total_commits: number;
+	    total_additions: number;
+	    total_deletions: number;
+	    directly_merged_count: number;
+	    avg_pr_age_days: number;
+	    reviewer_activity: Record<string, ReviewerSummary>;
+	    prs_by_repo: Record<string, number>;
+	    prs_by_month: Record<string, number>;
+	    stale_recomputed: number;
+	    cache_hits: number;
+	    // Go type: time
+	    last_updated: any;
+	
+	    static createFrom(source: any = {}) {
+	        return new DashboardStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_prs = source["total_prs"];
+	        this.open_prs = source["open_prs"];
+	        this.draft_prs = source["draft_prs"];
+	        this.closed_prs = source["closed_prs"];
+	        this.total_comments = source["total_comments"];
+	        this.total_commits = source["total_commits"];
+	        this.total_additions = source["total_additions"];
+	        this.total_deletions = source["total_deletions"];
+	        this.directly_merged_count = source["directly_merged_count"];
+	        this.avg_pr_age_days = source["avg_pr_age_days"];
+	        this.reviewer_activity = this.convertValues(source["reviewer_activity"], ReviewerSummary, true);
+	        this.prs_by_repo = source["prs_by_repo"];
+	        this.prs_by_month = source["prs_by_month"];
+	        this.stale_recomputed = source["stale_recomputed"];
+	        this.cache_hits = source["cache_hits"];
+	        this.last_updated = this.convertValues(source["last_updated"], null);
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
+	}
+	export class PRDashboardInput {
+	    id: string;
+	    repo_id: string;
+	    number: number;
+	    updated_at: string;
+	    created_at: string;
+	    state: string;
+	    is_draft: boolean;
+	    repo_name: string;
+	
+	    static createFrom(source: any = {}) {
+	        return new PRDashboardInput(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.id = source["id"];
+	        this.repo_id = source["repo_id"];
+	        this.number = source["number"];
+	        this.updated_at = source["updated_at"];
+	        this.created_at = source["created_at"];
+	        this.state = source["state"];
+	        this.is_draft = source["is_draft"];
+	        this.repo_name = source["repo_name"];
+	    }
+	}
+	export class PRStats {
+	    total_comments: number;
+	    pr_conversation_comments: number;
+	    review_comments: number;
+	    author_replies: number;
+	    review_comments_by_reviewer: Record<string, number>;
+	    reviewer_states: Record<string, string>;
+	    commits: number;
+	    changed_files: number;
+	    additions: number;
+	    deletions: number;
+	    directly_merged: boolean;
+	    pr_age_days: number;
+	    labels: string[];
+	    author: string;
+	    created_at: string;
+	    // Go type: time
+	    last_updated: any;
+	    from_cache: boolean;
+	
+	    static createFrom(source: any = {}) {
+	        return new PRStats(source);
+	    }
+	
+	    constructor(source: any = {}) {
+	        if ('string' === typeof source) source = JSON.parse(source);
+	        this.total_comments = source["total_comments"];
+	        this.pr_conversation_comments = source["pr_conversation_comments"];
+	        this.review_comments = source["review_comments"];
+	        this.author_replies = source["author_replies"];
+	        this.review_comments_by_reviewer = source["review_comments_by_reviewer"];
+	        this.reviewer_states = source["reviewer_states"];
+	        this.commits = source["commits"];
+	        this.changed_files = source["changed_files"];
+	        this.additions = source["additions"];
+	        this.deletions = source["deletions"];
+	        this.directly_merged = source["directly_merged"];
+	        this.pr_age_days = source["pr_age_days"];
+	        this.labels = source["labels"];
+	        this.author = source["author"];
+	        this.created_at = source["created_at"];
+	        this.last_updated = this.convertValues(source["last_updated"], null);
+	        this.from_cache = source["from_cache"];
+	    }
+	
+		convertValues(a: any, classs: any, asMap: boolean = false): any {
+		    if (!a) {
+		        return a;
+		    }
+		    if (a.slice && a.map) {
+		        return (a as any[]).map(elem => this.convertValues(elem, classs));
+		    } else if ("object" === typeof a) {
+		        if (asMap) {
+		            for (const key of Object.keys(a)) {
+		                a[key] = new classs(a[key]);
+		            }
+		            return a;
+		        }
+		        return new classs(a);
+		    }
+		    return a;
+		}
 	}
 
 }
