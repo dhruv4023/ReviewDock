@@ -1,9 +1,9 @@
 import React, { useEffect, useMemo } from 'react';
 import { useAppStore, ReviewerSummary } from '../stores/appStore';
 import {
-  RefreshCw, Database, Zap, GitPullRequest, GitMerge, MessageSquare,
+  RefreshCw, Database, GitPullRequest, GitMerge, MessageSquare,
   GitCommit, Plus, Minus, Clock, CheckCircle, AlertCircle,
-  Loader2, BarChart2, Shield,
+  Loader2, BarChart2,
 } from 'lucide-react';
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
@@ -422,12 +422,11 @@ export const Dashboard: React.FC = () => {
         <div className="flex-1 overflow-y-auto p-4 space-y-4">
 
           {/* ── Summary cards ── */}
-          <div className="grid grid-cols-6 gap-3">
+          <div className="grid grid-cols-5 gap-3">
             <SumCard icon={<GitPullRequest size={12} />} label="Total PRs"     value={stats.total_prs}            color="text-gray-100" />
             <SumCard icon={<CheckCircle   size={12} />} label="Open"           value={stats.open_prs}             color="text-green-400" />
             <SumCard icon={<AlertCircle   size={12} />} label="Draft"          value={stats.draft_prs}            color="text-amber-400" />
             <SumCard icon={<GitMerge      size={12} />} label="Closed"         value={stats.closed_prs}           color="text-zinc-400" />
-            <SumCard icon={<Zap           size={12} />} label="Direct Merge"   value={stats.directly_merged_count} color="text-rose-400" sub="without review" />
             <SumCard icon={<Clock         size={12} />} label="Avg PR Age"     value={avgAgeDisplay}              color="text-violet-400" />
           </div>
 
@@ -513,15 +512,6 @@ export const Dashboard: React.FC = () => {
                       <div className="text-[10px] text-zinc-600">Comments</div>
                     </div>
                   </div>
-                  {stats.directly_merged_count > 0 && (
-                    <div className="flex items-center gap-2 p-2 bg-amber-950/20 border border-amber-800/40 rounded-lg">
-                      <Shield size={14} className="text-amber-400 shrink-0" />
-                      <div>
-                        <p className="text-amber-300 text-[11px] font-semibold">{stats.directly_merged_count} PR{stats.directly_merged_count !== 1 ? 's' : ''} merged without review</p>
-                        <p className="text-zinc-600 text-[10px]">of {stats.total_prs} total</p>
-                      </div>
-                    </div>
-                  )}
                 </div>
               </Section>
             </div>

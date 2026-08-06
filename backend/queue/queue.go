@@ -44,11 +44,12 @@ type Job struct {
 	Options   models.Settings
 
 	// Scheduling & grouping fields
-	State    JobState
-	Error    error
-	Cancel   context.CancelFunc
-	JobCtx   context.Context
-	SkipPush bool // if true, complete the rebase but do NOT force-push at the end
+	State         JobState
+	Error         error
+	Cancel        context.CancelFunc
+	JobCtx        context.Context
+	SkipPush      bool // if true, complete the rebase but do NOT force-push at the end
+	RebaseStarted bool // true only while git rebase is actively running (not during checkout/amend)
 }
 
 func (j *Job) GetBranchName() string {
@@ -179,14 +180,36 @@ func (m *Manager) Cancel(jobID string) {
 		}
 
 		switch j.State {
-		case statePending, stateRebasing, stateRebased:
-			// Do NOT cancel the context or fail the job.
-			// A running rebase must be allowed to finish cleanly — interrupting it
-			// mid-way leaves the git working tree dirty. Setting SkipPush=true
-			// tells processJob to complete the rebase and then silently skip the
-			// force-push at the end.
+		case statePending:
+			// Not yet started — mark SkipPush so it bails out before touching git.
 			j.SkipPush = true
-			m.log(fmt.Sprintf("\u001b[33m[%s] Push aborted by user — rebase will complete but the branch will NOT be force-pushed.\u001b[0m\r\n", j.RepoName))
+			m.log(fmt.Sprintf("\u001b[33m[%s] Abort requested while queued — rebase will be skipped.\u001b[0m\r\n", j.RepoName))
+			m.reportStatusLocked(j.ID, "running", "")
+
+		case stateRebasing:
+			// stateRebasing covers checkout, rebase, and amend.
+			// Only interrupt if git rebase itself is currently running — during
+			// checkout or amend we let the operation finish cleanly and just
+			// mark SkipPush so nothing is force-pushed afterward.
+			if j.RebaseStarted {
+				// git rebase is actively running: cancel the context to kill it.
+				// executeRebasePhase's error handler calls RebaseAbort(background)
+				// to clean the tree; the branch checkout is preserved.
+				if j.Cancel != nil {
+					j.Cancel()
+				}
+				m.log(fmt.Sprintf("\u001b[33m[%s] Abort requested — interrupting running rebase. Branch checkout will be preserved.\u001b[0m\r\n", j.RepoName))
+			} else {
+				// Checkout or amend is running: let it finish, skip the push.
+				j.SkipPush = true
+				m.log(fmt.Sprintf("\u001b[33m[%s] Abort requested during branch switch/amend — will skip push once done.\u001b[0m\r\n", j.RepoName))
+			}
+			m.reportStatusLocked(j.ID, "running", "")
+
+		case stateRebased:
+			// Rebase finished cleanly; only skip the subsequent push.
+			j.SkipPush = true
+			m.log(fmt.Sprintf("\u001b[33m[%s] Push aborted by user — rebase complete but branch will NOT be force-pushed.\u001b[0m\r\n", j.RepoName))
 			m.reportStatusLocked(j.ID, "running", "")
 
 		case statePushing:
@@ -453,10 +476,24 @@ func (m *Manager) executeRebasePhase(ctx context.Context, job *Job) error {
 
 	// 5. Rebase onto base branch
 	logger(fmt.Sprintf("Rebasing '%s' onto '%s/%s'...", job.HeadLabel, baseBranchRemote, baseBranch))
-	if err := m.gitExecutor.Rebase(ctx, job.RepoPath, baseBranch, baseBranchRemote, logger); err != nil {
+	// Mark rebase as started so Cancel() knows to interrupt via context cancellation
+	// rather than falling back to the SkipPush path.
+	m.mu.Lock()
+	job.RebaseStarted = true
+	m.mu.Unlock()
+	rebaseErr := m.gitExecutor.Rebase(ctx, job.RepoPath, baseBranch, baseBranchRemote, logger)
+	m.mu.Lock()
+	job.RebaseStarted = false
+	m.mu.Unlock()
+	if rebaseErr != nil {
 		logger("Conflict detected! Attempting to abort rebase...")
-		_ = m.gitExecutor.RebaseAbort(ctx, job.RepoPath, logger)
-		return fmt.Errorf("rebase failed due to merge conflicts: %w", err)
+		// Use a fresh context for the abort — the job context may already be
+		// cancelled, which would cause exec.CommandContext to kill the process
+		// immediately, leaving the git working tree stuck mid-rebase.
+		// Branch checkout failures (step 4) do NOT reach here, so the abort
+		// only fires when a rebase is actually in progress.
+		_ = m.gitExecutor.RebaseAbort(context.Background(), job.RepoPath, logger)
+		return fmt.Errorf("rebase failed due to merge conflicts: %w", rebaseErr)
 	}
 
 	// 6. Amend commit timestamp if enabled

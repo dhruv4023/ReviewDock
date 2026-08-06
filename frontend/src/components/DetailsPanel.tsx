@@ -3,7 +3,7 @@ import { useAppStore, PRStats } from '../stores/appStore';
 import {
   ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X, Copy, Check, Eye,
   Bot, Loader2, BarChart3, Info, User, Tag, GitCommit, FileCode,
-  Plus, Minus, Clock, MessageSquare, Shield, Zap,
+  Plus, Minus, Clock, MessageSquare,
 } from 'lucide-react';
 
 // ─── Types ────────────────────────────────────────────────────────────────────
@@ -150,24 +150,10 @@ function StatisticsTab({ stats, loading, onRefresh }: {
         <div className="grid grid-cols-2 gap-2">
           <StatCard
             icon={<MessageSquare size={11} />}
-            label="Total"
+            label="Conversations"
             value={stats.total_comments}
-            sub="all sources"
+            sub="GitHub total"
             accent="text-blue-400"
-          />
-          <StatCard
-            icon={<MessageSquare size={11} />}
-            label="PR Comments"
-            value={stats.pr_conversation_comments}
-            sub="conversation"
-            accent="text-sky-400"
-          />
-          <StatCard
-            icon={<MessageSquare size={11} />}
-            label="Review Bodies"
-            value={stats.review_comments}
-            sub="from reviews"
-            accent="text-indigo-400"
           />
           <StatCard
             icon={<MessageSquare size={11} />}
@@ -175,6 +161,20 @@ function StatisticsTab({ stats, loading, onRefresh }: {
             value={stats.author_replies}
             sub="by author"
             accent="text-amber-400"
+          />
+          <StatCard
+            icon={<MessageSquare size={11} />}
+            label="PR Comments"
+            value={stats.pr_conversation_comments}
+            sub="timeline"
+            accent="text-sky-400"
+          />
+          <StatCard
+            icon={<MessageSquare size={11} />}
+            label="Review Comments"
+            value={stats.review_comments}
+            sub="reviews + inline"
+            accent="text-indigo-400"
           />
         </div>
       </div>
@@ -251,29 +251,7 @@ function StatisticsTab({ stats, loading, onRefresh }: {
         </div>
       )}
 
-      {/* Merge info */}
-      <div>
-        <SectionTitle>Merge Info</SectionTitle>
-        <div className="bg-[#0d1117] border border-zinc-800 rounded-lg p-3 flex items-center gap-3">
-          {stats.directly_merged ? (
-            <>
-              <Zap size={14} className="text-amber-400 shrink-0" />
-              <div>
-                <p className="text-amber-300 font-semibold text-[11px]">Directly Merged</p>
-                <p className="text-zinc-500 text-[10px]">Merged without an approving review</p>
-              </div>
-            </>
-          ) : (
-            <>
-              <Shield size={14} className="text-green-400 shrink-0" />
-              <div>
-                <p className="text-green-300 font-semibold text-[11px]">Review-Gated</p>
-                <p className="text-zinc-500 text-[10px]">Had an approving review before merge</p>
-              </div>
-            </>
-          )}
-        </div>
-      </div>
+
     </div>
   );
 }

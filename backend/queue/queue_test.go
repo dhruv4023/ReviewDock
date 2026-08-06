@@ -415,15 +415,21 @@ func TestGroupPushAbortedOnRebaseFailure(t *testing.T) {
 	}
 }
 
-func TestAbortSkipsPushNotRebase(t *testing.T) {
+func TestAbortInterruptsRebaseAndSkipsPush(t *testing.T) {
 	mockExecutor := &MockGitExecutor{}
-	var rebaseCompleted, pushCalled bool
+	var rebaseCompleted, rebaseAbortCalled, pushCalled bool
 	var mu sync.Mutex
 
+	// Rebase blocks until its context is cancelled.
 	mockExecutor.rebaseFunc = func(ctx context.Context, dir string, baseBranch string, remote string, log git.LogWriter) error {
-		time.Sleep(50 * time.Millisecond)
+		<-ctx.Done() // block until context is cancelled by Cancel()
+		return ctx.Err()
+	}
+
+	// RebaseAbort should be called to clean up the interrupted rebase.
+	mockExecutor.abortFunc = func(ctx context.Context, dir string, log git.LogWriter) error {
 		mu.Lock()
-		rebaseCompleted = true
+		rebaseAbortCalled = true
 		mu.Unlock()
 		return nil
 	}
@@ -451,7 +457,7 @@ func TestAbortSkipsPushNotRebase(t *testing.T) {
 
 	mgr.Submit(job)
 
-	// User aborts the job while rebase is running
+	// Wait until the job is actively rebasing, then abort it.
 	time.Sleep(10 * time.Millisecond)
 	mgr.Cancel("job1")
 
@@ -460,14 +466,17 @@ func TestAbortSkipsPushNotRebase(t *testing.T) {
 
 	mu.Lock()
 	rCompleted := rebaseCompleted
+	abortCalled := rebaseAbortCalled
 	pCalled := pushCalled
 	mu.Unlock()
 
-	if !rCompleted {
-		t.Errorf("expected rebase to finish cleanly so working directory is clean")
+	if rCompleted {
+		t.Errorf("expected rebase to be interrupted, not completed")
+	}
+	if !abortCalled {
+		t.Errorf("expected RebaseAbort to be called to clean up the interrupted rebase")
 	}
 	if pCalled {
-		t.Errorf("expected push to be skipped when aborted by user")
+		t.Errorf("expected push to be skipped after abort")
 	}
 }
-
