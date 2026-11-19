@@ -13,6 +13,7 @@ import (
 
 	"review-dock/backend/git"
 	"review-dock/backend/github"
+	"review-dock/backend/knowledge/pipeline"
 	"review-dock/backend/models"
 	"review-dock/backend/queue"
 	"review-dock/backend/stats"
@@ -27,6 +28,7 @@ type App struct {
 	queueManager *queue.Manager
 	ghClient     *github.Client
 	statsCache   *stats.CacheService
+	kb           *pipeline.Pipeline // review-knowledge system (nil if unavailable)
 	lastCronRun  time.Time
 	cronMutex    sync.Mutex
 }
@@ -44,12 +46,19 @@ func (a *App) startup(ctx context.Context) {
 	// Initialize Storage
 	store, err := storage.NewService("review-dock")
 	if err != nil {
+		// Without storage nothing can be persisted; surface it instead of
+		// panicking on the nil service below.
 		wails.LogErrorf(a.ctx, "Failed initializing storage: %v", err)
+		wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf("\u001b[31m[STARTUP] storage unavailable: %v\u001b[0m\r\n", err))
+		return
 	}
 	a.storage = store
 
 	// Initialize Stats Cache (co-located with other storage files)
 	a.statsCache = stats.NewCacheService(store.DataDir())
+
+	// Review-knowledge system (DB, scheduler). Independent of the rebase queue.
+	a.startKnowledge()
 
 	// Load Settings
 	settings, err := a.storage.ReadSettings()
@@ -92,6 +101,7 @@ func (a *App) shutdown(ctx context.Context) {
 	if a.queueManager != nil {
 		a.queueManager.Stop()
 	}
+	a.stopKnowledge()
 }
 
 // GetRepositories retrieves tracked repositories
@@ -146,6 +156,7 @@ func (a *App) AddRepository(localPath string) (models.Repository, error) {
 	if err := a.storage.WriteRepos(repos); err != nil {
 		return models.Repository{}, err
 	}
+	a.syncTrackedRepos()
 
 	return newRepo, nil
 }
@@ -587,7 +598,6 @@ func (a *App) GetDashboardStats(inputs []stats.PRDashboardInput) (*stats.Dashboa
 	return dashboard, nil
 }
 
-
 func (a *App) startCronScheduler() {
 	ticker := time.NewTicker(55 * time.Second)
 	defer ticker.Stop()
@@ -691,7 +701,7 @@ func (a *App) triggerScheduledRebaseAndPush() {
 	// same branch also get pulled in.
 	eligibleBranches := make(map[string]bool) // key: bare branch name (no "owner/" prefix)
 	for _, pr := range prs {
-		if !strings.Contains(pr.HeadLabel, "/") {
+		if pr.MergeableStatus == "conflicting" || !strings.Contains(pr.HeadLabel, "/") {
 			continue
 		}
 		// HeadLabel is "owner/branch" — extract just the branch portion
@@ -757,6 +767,15 @@ func (a *App) triggerScheduledRebaseAndPush() {
 			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
 				"\u001b[33m[SCHEDULED] Dirty working tree in %s/%s — skipping whole group for branch '%s'\u001b[0m\r\n",
 				repo.Owner, repo.Name, branchName,
+			))
+			skippedDirtyBranchs[branchName] = true
+			continue
+		}
+
+		if pr.MergeableStatus == "conflicting" {
+			wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf(
+				"\u001b[33m[SCHEDULED] Skipping PR #%d (%s/%s): merge conflict\u001b[0m\r\n",
+				pr.Number, repo.Owner, repo.Name,
 			))
 			skippedDirtyBranchs[branchName] = true
 			continue

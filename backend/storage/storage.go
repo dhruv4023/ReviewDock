@@ -87,21 +87,13 @@ func (s *Service) WriteRepos(repos []models.Repository) error {
 	defer fl.Unlock()
 
 	filePath := filepath.Join(s.dataDir, "repos.json")
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
 	data := struct {
 		Repositories []models.Repository `json:"repositories"`
 	}{
 		Repositories: repos,
 	}
 
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(data)
+	return writeJSONAtomic(filePath, data)
 }
 
 func (s *Service) ReadSettings() (*models.Settings, error) {
@@ -142,15 +134,7 @@ func (s *Service) WriteSettings(settings *models.Settings) error {
 	defer fl.Unlock()
 
 	filePath := filepath.Join(s.dataDir, "settings.json")
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(settings)
+	return writeJSONAtomic(filePath, settings)
 }
 
 func (s *Service) ReadSession() (*models.Session, error) {
@@ -190,15 +174,7 @@ func (s *Service) WriteSession(session *models.Session) error {
 		return os.Remove(filePath)
 	}
 
-	file, err := os.OpenFile(filePath, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0600)
-	if err != nil {
-		return err
-	}
-	defer file.Close()
-
-	encoder := json.NewEncoder(file)
-	encoder.SetIndent("", "  ")
-	return encoder.Encode(session)
+	return writeJSONAtomic(filePath, session)
 }
 
 func (s *Service) ReadReviewTemplate() (string, error) {
@@ -227,5 +203,41 @@ func (s *Service) WriteReviewTemplate(template string) error {
 	defer fl.Unlock()
 
 	filePath := filepath.Join(s.dataDir, "review_template.txt")
-	return os.WriteFile(filePath, []byte(template), 0600)
+	return WriteFileAtomic(filePath, []byte(template), 0600)
+}
+
+// writeJSONAtomic encodes v (indented) and atomically replaces path.
+func writeJSONAtomic(path string, v any) error {
+	b, err := json.MarshalIndent(v, "", "  ")
+	if err != nil {
+		return err
+	}
+	return WriteFileAtomic(path, append(b, '\n'), 0600)
+}
+
+// WriteFileAtomic writes data to a temp file in the same directory, fsyncs
+// it and renames it over path, so a crash never leaves a truncated file.
+func WriteFileAtomic(path string, data []byte, perm os.FileMode) error {
+	tmp, err := os.CreateTemp(filepath.Dir(path), "."+filepath.Base(path)+".tmp-*")
+	if err != nil {
+		return err
+	}
+	name := tmp.Name()
+	defer os.Remove(name) // no-op after a successful rename
+	if _, err := tmp.Write(data); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Chmod(perm); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Sync(); err != nil {
+		tmp.Close()
+		return err
+	}
+	if err := tmp.Close(); err != nil {
+		return err
+	}
+	return os.Rename(name, path)
 }

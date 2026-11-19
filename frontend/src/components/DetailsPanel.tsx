@@ -1,5 +1,6 @@
 import React, { useEffect, useState, useCallback } from 'react';
 import { useAppStore, PRStats } from '../stores/appStore';
+import { DEFAULT_REVIEW_TEMPLATE } from '../reviewTemplate';
 import {
   ExternalLink, CheckCircle2, XCircle, AlertCircle, RefreshCw, X, Copy, Check, Eye,
   Bot, Loader2, BarChart3, Info, User, Tag, GitCommit, FileCode,
@@ -360,7 +361,6 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
     }
   };
 
-  const DEFAULT_TEMPLATE = `You are an expert code reviewer. Please review the following pull request carefully.\n\n## Instructions\n- Identify bugs, security issues, and logic errors.\n- Suggest improvements to code clarity and maintainability.\n- Check for missing tests or documentation.\n- Be concise and prioritize critical issues.\n- Note any positive aspects of the implementation.\n\n## PR Title\n{{PR_TITLE}}\n\n## PR Description\n{{PR_DESCRIPTION}}\n\n## Code Changes\n{{PR_DIFF}}`;
 
   const handleCopyReviewPrompt = async () => {
     if (!selectedPR || isGeneratingPrompt) return;
@@ -368,8 +368,13 @@ export const DetailsPanel: React.FC<DetailsPanelProps> = ({ width, onClose, onRe
     try {
       const baseRef = selectedPR.base_label || selectedPR.base_branch;
       const diff = await window.go.main.App.GetPRDiff(selectedPR.repo_id, baseRef, selectedPR.head_branch);
-      const tmpl = reviewTemplate || DEFAULT_TEMPLATE;
+      const tmpl = reviewTemplate || DEFAULT_REVIEW_TEMPLATE;
+      // Rules come from the published review skill (empty if none yet).
+      const rules = tmpl.includes('{{REVIEW_RULES}}')
+        ? await window.go.main.App.KBReviewRules().catch(() => '')
+        : '';
       const prompt = tmpl
+        .replace(/\{\{REVIEW_RULES\}\}/g, rules || 'No published review rules yet.')
         .replace(/\{\{PR_TITLE\}\}/g, selectedPR.title || '')
         .replace(/\{\{PR_DESCRIPTION\}\}/g, selectedPR.description || 'No description provided.')
         .replace(/\{\{PR_DIFF\}\}/g, diff || 'No diff available.');

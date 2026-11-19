@@ -24,24 +24,18 @@ func GetSession(ctx context.Context) (*models.Session, error) {
 		return nil, nil
 	}
 
-	// Retrieve the active token
-	tokenOut, err := exec.CommandContext(ctx, "gh", "auth", "token").Output()
-	if err != nil {
-		return nil, fmt.Errorf("gh auth token: %w", err)
-	}
-	token := strings.TrimSpace(string(tokenOut))
-
 	// Fetch user profile
 	user, err := fetchCurrentUser(ctx)
 	if err != nil {
 		return nil, err
 	}
 
+	// The token itself stays inside gh: nothing in the app needs it, and
+	// this struct is serialised to the WebView.
 	return &models.Session{
-		AccessToken: token,
-		TokenType:   "bearer",
-		Scope:       "repo,read:org",
-		User:        user,
+		TokenType: "bearer",
+		Scope:     "repo,read:org",
+		User:      user,
 	}, nil
 }
 

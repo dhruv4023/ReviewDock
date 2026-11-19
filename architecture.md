@@ -1,3 +1,5 @@
+> **Historical document.** This is the original design blueprint. The implementation uses the `gh` CLI for auth and GitHub access, not an OAuth app or go-github. For the current architecture see [`README.md`](README.md), and for the review-knowledge system see [`docs/KNOWLEDGE_SYSTEM.md`](docs/KNOWLEDGE_SYSTEM.md).
+
 # GitHub Pull Request Rebase Manager - Architectural Blueprint
 
 This document outlines the complete architectural design, project structure, schemas, workflows, and API contracts for building a production-ready, cross-platform desktop application using **Wails v2** (Go backend), **ReactJS** (Frontend), and **TailwindCSS**.

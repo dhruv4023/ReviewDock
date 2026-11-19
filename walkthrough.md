@@ -1,4 +1,4 @@
-# Project Walkthrough - GitHub PR Rebase Manager
+# Project Walkthrough - Review Dock
 
 This document summarizes the generated scaffolding and provides instructions for running and compiling the desktop application.
 

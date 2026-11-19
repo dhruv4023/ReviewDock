@@ -6,13 +6,17 @@ import (
 	"os"
 	"path/filepath"
 	"sync"
+
+	"review-dock/backend/storage"
 )
 
 // CacheService manages the on-disk stats cache (stats_cache.json) for all
-// tracked pull requests.  Entries are keyed by PR ID.
+// tracked pull requests.  Entries are keyed by PR ID. The file is read once
+// and kept in memory; writes replace the file atomically.
 type CacheService struct {
 	mu      sync.Mutex
 	dataDir string
+	entries map[string]PRStatsCache // nil until first load
 }
 
 // NewCacheService creates a CacheService that persists data under dataDir.
@@ -49,19 +53,26 @@ func (s *CacheService) writeAll(cache map[string]PRStatsCache) error {
 	if err != nil {
 		return err
 	}
-	return os.WriteFile(s.filePath(), data, 0600)
+	return storage.WriteFileAtomic(s.filePath(), data, 0600)
+}
+
+// loadLocked populates the in-memory map on first use. Caller holds s.mu.
+func (s *CacheService) loadLocked() map[string]PRStatsCache {
+	if s.entries == nil {
+		all, err := s.readAll()
+		if err != nil {
+			all = make(map[string]PRStatsCache)
+		}
+		s.entries = all
+	}
+	return s.entries
 }
 
 // Get returns the cached entry for prID and whether it was found.
 func (s *CacheService) Get(prID string) (PRStatsCache, bool) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	all, err := s.readAll()
-	if err != nil {
-		return PRStatsCache{}, false
-	}
-	entry, ok := all[prID]
+	entry, ok := s.loadLocked()[prID]
 	return entry, ok
 }
 
@@ -69,11 +80,7 @@ func (s *CacheService) Get(prID string) (PRStatsCache, bool) {
 func (s *CacheService) Set(prID string, entry PRStatsCache) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	all, err := s.readAll()
-	if err != nil {
-		all = make(map[string]PRStatsCache)
-	}
+	all := s.loadLocked()
 	all[prID] = entry
 	return s.writeAll(all)
 }
@@ -82,11 +89,7 @@ func (s *CacheService) Set(prID string, entry PRStatsCache) error {
 func (s *CacheService) Delete(prID string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-
-	all, err := s.readAll()
-	if err != nil {
-		return err
-	}
+	all := s.loadLocked()
 	delete(all, prID)
 	return s.writeAll(all)
 }

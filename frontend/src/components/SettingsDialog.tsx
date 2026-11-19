@@ -1,24 +1,9 @@
 import React, { useState, useEffect, useCallback, useRef } from 'react';
 import { useAppStore } from '../stores/appStore';
+import { DEFAULT_REVIEW_TEMPLATE, TEMPLATE_PLACEHOLDERS } from '../reviewTemplate';
 import { X, Save, RotateCcw, Settings, Bot, SlidersHorizontal, Check, AlertTriangle, ChevronDown } from 'lucide-react';
 
-const DEFAULT_TEMPLATE = `You are an expert code reviewer. Please review the following pull request carefully.
-
-## Instructions
-- Identify bugs, security issues, and logic errors.
-- Suggest improvements to code clarity and maintainability.
-- Check for missing tests or documentation.
-- Be concise and prioritize critical issues.
-- Note any positive aspects of the implementation.
-
-## PR Title
-{{PR_TITLE}}
-
-## PR Description
-{{PR_DESCRIPTION}}
-
-## Code Changes
-{{PR_DIFF}}`;
+const DEFAULT_TEMPLATE = DEFAULT_REVIEW_TEMPLATE;
 
 interface SettingsDialogProps {
   onClose: () => void;
@@ -186,7 +171,7 @@ export const SettingsDialog: React.FC<SettingsDialogProps> = ({ onClose }) => {
                   Use the placeholders below — they will be replaced automatically.
                 </p>
                 <div className="flex flex-wrap gap-2 mt-2">
-                  {['{{PR_TITLE}}', '{{PR_DESCRIPTION}}', '{{PR_DIFF}}'].map(ph => (
+                  {TEMPLATE_PLACEHOLDERS.map(ph => (
                     <span
                       key={ph}
                       className="px-2 py-0.5 bg-zinc-800 border border-zinc-700 rounded font-mono text-[11px] text-blue-300 select-all"

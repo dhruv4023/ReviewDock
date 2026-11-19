@@ -54,6 +54,114 @@ export function IsDev() {
   return window['go']['main']['App']['IsDev']();
 }
 
+export function KBAddRepository(arg1, arg2) {
+  return window['go']['main']['App']['KBAddRepository'](arg1, arg2);
+}
+
+export function KBCommentRevisions(arg1) {
+  return window['go']['main']['App']['KBCommentRevisions'](arg1);
+}
+
+export function KBCommentThread(arg1) {
+  return window['go']['main']['App']['KBCommentThread'](arg1);
+}
+
+export function KBCreateRuleFromComment(arg1, arg2) {
+  return window['go']['main']['App']['KBCreateRuleFromComment'](arg1, arg2);
+}
+
+export function KBEditRule(arg1, arg2) {
+  return window['go']['main']['App']['KBEditRule'](arg1, arg2);
+}
+
+export function KBExtract() {
+  return window['go']['main']['App']['KBExtract']();
+}
+
+export function KBMergeRules(arg1, arg2) {
+  return window['go']['main']['App']['KBMergeRules'](arg1, arg2);
+}
+
+export function KBMeta() {
+  return window['go']['main']['App']['KBMeta']();
+}
+
+export function KBOverview() {
+  return window['go']['main']['App']['KBOverview']();
+}
+
+export function KBPreviewSkill() {
+  return window['go']['main']['App']['KBPreviewSkill']();
+}
+
+export function KBRebuildSkill(arg1) {
+  return window['go']['main']['App']['KBRebuildSkill'](arg1);
+}
+
+export function KBRemoveRepository(arg1) {
+  return window['go']['main']['App']['KBRemoveRepository'](arg1);
+}
+
+export function KBRepositories() {
+  return window['go']['main']['App']['KBRepositories']();
+}
+
+export function KBResetRepository(arg1) {
+  return window['go']['main']['App']['KBResetRepository'](arg1);
+}
+
+export function KBRetryFailed() {
+  return window['go']['main']['App']['KBRetryFailed']();
+}
+
+export function KBReviewRules() {
+  return window['go']['main']['App']['KBReviewRules']();
+}
+
+export function KBRule(arg1) {
+  return window['go']['main']['App']['KBRule'](arg1);
+}
+
+export function KBRules(arg1) {
+  return window['go']['main']['App']['KBRules'](arg1);
+}
+
+export function KBRunSync(arg1, arg2) {
+  return window['go']['main']['App']['KBRunSync'](arg1, arg2);
+}
+
+export function KBRuns(arg1) {
+  return window['go']['main']['App']['KBRuns'](arg1);
+}
+
+export function KBSaveSettings(arg1) {
+  return window['go']['main']['App']['KBSaveSettings'](arg1);
+}
+
+export function KBSearchComments(arg1) {
+  return window['go']['main']['App']['KBSearchComments'](arg1);
+}
+
+export function KBSetEvidence(arg1, arg2, arg3) {
+  return window['go']['main']['App']['KBSetEvidence'](arg1, arg2, arg3);
+}
+
+export function KBSetRuleStatus(arg1, arg2, arg3) {
+  return window['go']['main']['App']['KBSetRuleStatus'](arg1, arg2, arg3);
+}
+
+export function KBSettings() {
+  return window['go']['main']['App']['KBSettings']();
+}
+
+export function KBSkillInfo() {
+  return window['go']['main']['App']['KBSkillInfo']();
+}
+
+export function KBUpdateRepository(arg1, arg2, arg3) {
+  return window['go']['main']['App']['KBUpdateRepository'](arg1, arg2, arg3);
+}
+
 export function LoginGitHub() {
   return window['go']['main']['App']['LoginGitHub']();
 }

@@ -6,7 +6,8 @@ import { DetailsPanel } from './components/DetailsPanel';
 import { TerminalPanel } from './components/TerminalPanel';
 import { SettingsDialog } from './components/SettingsDialog';
 import { Dashboard } from './components/Dashboard';
-import { Github, LogOut, AlertTriangle, RefreshCw, PanelRight, Copy, ExternalLink, Check, Settings, BarChart2, List } from 'lucide-react';
+import { KnowledgeView } from './components/knowledge/KnowledgeView';
+import { Github, LogOut, AlertTriangle, RefreshCw, PanelRight, Copy, ExternalLink, Check, Settings, BarChart2, List, BookOpen } from 'lucide-react';
 
 const DETAILS_MIN = 260;
 const DETAILS_MAX = 600;
@@ -42,8 +43,8 @@ export const App: React.FC = () => {
   const [isLoggingIn, setIsLoggingIn] = useState(false);
   const [copiedCode, setCopiedCode] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
-  // 'prs' = PR list table, 'dashboard' = aggregate statistics
-  const [mainView, setMainView] = useState<'prs' | 'dashboard'>('prs');
+  // 'prs' = PR list table, 'dashboard' = aggregate statistics, 'knowledge' = review knowledge & skill
+  const [mainView, setMainView] = useState<'prs' | 'dashboard' | 'knowledge'>('prs');
 
   // Panel layout state — initialised from localStorage so they survive restarts
   const [sidebarCollapsed, setSidebarCollapsed] = useState<boolean>(() =>
@@ -335,14 +336,23 @@ export const App: React.FC = () => {
               <BarChart2 size={12} />
               Dashboard
             </button>
+            <button
+              onClick={() => setMainView('knowledge')}
+              className={`flex items-center gap-1.5 px-4 py-2 text-[11px] font-semibold border-b-2 transition ${
+                mainView === 'knowledge'
+                  ? 'border-emerald-500 text-emerald-400 bg-emerald-950/10'
+                  : 'border-transparent text-zinc-500 hover:text-gray-300 hover:bg-zinc-800/30'
+              }`}
+            >
+              <BookOpen size={12} />
+              Review Knowledge
+            </button>
           </div>
 
           {/* ── View content ── */}
-          {mainView === 'prs' ? (
-            <PRTable onRowClick={handleRowClick} />
-          ) : (
-            <Dashboard />
-          )}
+          {mainView === 'prs' && <PRTable onRowClick={handleRowClick} />}
+          {mainView === 'dashboard' && <Dashboard />}
+          {mainView === 'knowledge' && <KnowledgeView />}
         </div>
 
         {/* Right: Details panel — only shown in PR list view */}

@@ -46,7 +46,7 @@ type User struct {
 }
 
 type Session struct {
-	AccessToken string `json:"access_token"`
+	AccessToken string `json:"-"` // never sent to the frontend; gh keeps the credential
 	TokenType   string `json:"token_type"`
 	Scope       string `json:"scope"`
 	User        *User  `json:"user"`
@@ -59,7 +59,7 @@ type Settings struct {
 	Theme                string   `json:"theme"`
 	CronEnabled          bool     `json:"cron_enabled"`
 	CronTimes            []string `json:"cron_times"`
-	CronIncludeDrafts bool `json:"cron_include_drafts"`
+	CronIncludeDrafts    bool     `json:"cron_include_drafts"`
 }
 
 type RebaseRequest struct {

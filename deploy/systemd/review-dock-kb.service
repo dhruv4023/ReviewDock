@@ -1,0 +1,14 @@
+# User unit: install with `systemctl --user` (see docs/KNOWLEDGE_SYSTEM.md).
+[Unit]
+Description=review-dock knowledge sync (GitHub review comments -> rules -> agent skill)
+Wants=network-online.target
+After=network-online.target
+
+[Service]
+Type=oneshot
+# gh must be on PATH and logged in (gh auth login) or GH_TOKEN must be set.
+Environment=PATH=%h/.local/bin:/usr/local/bin:/usr/bin:/bin
+ExecStart=%h/review-dock-kb run
+# 3 = another sync (e.g. the desktop app) holds the lock: not a failure.
+SuccessExitStatus=3
+Nice=10

@@ -23,6 +23,8 @@ declare global {
           GetPRDiff(repoID: string, baseLabel: string, headBranch: string): Promise<string>;
           GetReviewTemplate(): Promise<string>;
           SaveReviewTemplate(template: string): Promise<void>;
+          /** Compact checklist from the published review skill ('' if none). */
+          KBReviewRules(): Promise<string>;
           IsDev(): Promise<boolean>;
           GetPRStats(prID: string, repoID: string, prNumber: number, prUpdatedAt: string, author: string): Promise<PRStats>;
           GetDashboardStats(inputs: PRDashboardInput[]): Promise<DashboardStats>;
@@ -56,7 +58,6 @@ export interface User {
 }
 
 export interface Session {
-  access_token: string;
   token_type: string;
   scope: string;
   user: User;

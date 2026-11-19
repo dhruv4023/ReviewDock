@@ -20,7 +20,7 @@ func main() {
 
 	// Configure and run the Wails application
 	err := wails.Run(&options.App{
-		Title:  "GitHub PR Rebase Manager",
+		Title:  "Review Dock",
 		Width:  1280,
 		Height: 800,
 		AssetServer: &assetserver.Options{
