@@ -129,9 +129,9 @@ export function Empty({ children }: { children: React.ReactNode }) {
   return <div className="text-[11px] text-zinc-500 py-6 text-center">{children}</div>;
 }
 
-export function Field({ label, hint, children }: { label: string; hint?: string; children: React.ReactNode }) {
+export function Field({ label, hint, children, className = '' }: { label: string; hint?: string; children: React.ReactNode; className?: string }) {
   return (
-    <label className="flex flex-col gap-1">
+    <label className={`flex flex-col gap-1 ${className}`}>
       <span className="text-[10px] font-semibold uppercase tracking-wider text-zinc-500">{label}</span>
       {children}
       {hint && <span className="text-[10px] text-zinc-600 leading-snug">{hint}</span>}

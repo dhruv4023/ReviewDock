@@ -350,7 +350,9 @@ func (d *DB) SearchComments(ctx context.Context, f CommentFilter) ([]CommentView
 		f.Limit = 100
 	}
 	rows, err := d.QueryContext(ctx, `SELECT `+commentViewCols+commentViewFrom+where+
-		fmt.Sprintf(` ORDER BY c.created_at DESC, c.id DESC LIMIT %d OFFSET %d`, f.Limit, f.Offset), args...)
+		// Grouped by PR (most recently updated PR first) so each PR's comments
+		// are contiguous, even across pages; chronological inside a PR.
+		fmt.Sprintf(` ORDER BY p.updated_at DESC, p.id DESC, c.created_at ASC, c.id ASC LIMIT %d OFFSET %d`, f.Limit, f.Offset), args...)
 	if err != nil {
 		return nil, 0, err
 	}

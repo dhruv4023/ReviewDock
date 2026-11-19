@@ -37,7 +37,17 @@ export const SyncTab: React.FC = () => {
   const [newAuthor, setNewAuthor] = useState('@me');
   const [authors, setAuthors] = useState<Record<number, string>>({});
   const [newTime, setNewTime] = useState('09:00');
+  const [newAuthorIgnore, setNewAuthorIgnore] = useState('');
   const { settings, setSettings, save, saved } = useKBSettings();
+  // Adds a login to the ignore list (case-insensitive dedupe); saved with the panel's Save button.
+  const addIgnored = () => {
+    const login = newAuthorIgnore.trim().replace(/^@/, '');
+    if (!settings || !login) return;
+    if (!settings.ignored_authors.some(x => x.toLowerCase() === login.toLowerCase())) {
+      setSettings({ ...settings, ignored_authors: [...settings.ignored_authors, login] });
+    }
+    setNewAuthorIgnore('');
+  };
 
   const load = useCallback(async () => {
     const api = kbApi();
@@ -162,8 +172,23 @@ export const SyncTab: React.FC = () => {
                 }}><Plus size={11} /> Add</Btn>
               </div>
             </Field>
-            <Field label="Ignored authors" hint="Bots and merge bots (comma separated). [bot] accounts are always ignored.">
-              <input value={settings.ignored_authors.join(', ')} onChange={e => setSettings({ ...settings, ignored_authors: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} className={inputCls} />
+            <Field label="Ignored authors" hint="Bots and merge bots whose comments are never treated as review feedback. [bot] accounts are always ignored." className="col-span-2">
+              <div className="flex flex-wrap items-center gap-1">
+                {settings.ignored_authors.map(a => (
+                  <span key={a} className="flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[11px] text-zinc-200">
+                    {a}
+                    <button type="button" title={`Remove ${a}`} className="text-zinc-500 hover:text-red-400"
+                      onClick={e => { e.preventDefault(); setSettings({ ...settings, ignored_authors: settings.ignored_authors.filter(x => x !== a) }); }}>✕</button>
+                  </span>
+                ))}
+                {settings.ignored_authors.length === 0 && <span className="text-[11px] text-zinc-600 italic">none</span>}
+              </div>
+              <div className="flex items-center gap-1.5">
+                <input value={newAuthorIgnore} onChange={e => setNewAuthorIgnore(e.target.value)} placeholder="login"
+                  onKeyDown={e => { if (e.key === 'Enter') { e.preventDefault(); addIgnored(); } }}
+                  className={`${inputCls} w-40`} />
+                <Btn disabled={!newAuthorIgnore.trim()} onClick={addIgnored}><Plus size={11} /> Add</Btn>
+              </div>
             </Field>
             <Field label="Auto-approve" hint="0 = never. Otherwise taxonomy rules seen in at least N PRs are approved automatically.">
               <input type="number" min={0} value={settings.auto_approve_min_prs} onChange={e => setSettings({ ...settings, auto_approve_min_prs: Number(e.target.value) })} className={inputCls} />

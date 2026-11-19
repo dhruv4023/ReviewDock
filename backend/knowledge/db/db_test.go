@@ -3,6 +3,7 @@ package db
 import (
 	"context"
 	"database/sql"
+	"fmt"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -197,5 +198,37 @@ func TestRecoverInterrupted(t *testing.T) {
 	r, _ := d.GetRepository(ctx, repo.ID)
 	if r.SyncStatus != "interrupted" {
 		t.Fatalf("repo status %s", r.SyncStatus)
+	}
+}
+
+func TestSearchCommentsGroupedByPR(t *testing.T) {
+	d := openTest(t)
+	ctx := context.Background()
+	repo, oldPR := seedPR(t, d) // PR #7, updated 2026-01-01
+	if err := d.InTx(ctx, func(tx *sql.Tx) error {
+		return d.UpsertPR(ctx, tx, PRRecord{ID: 88, RepoID: repo.ID, Number: 8, Title: "newer", Author: "me", UpdatedAt: "2026-02-01T00:00:00Z"})
+	}); err != nil {
+		t.Fatal(err)
+	}
+	// Interleaved creation times across the two PRs.
+	add := func(id, pr int64, at string) {
+		upsert(t, d, CommentRecord{Source: "issue", GitHubID: id, PRID: pr, Author: "rev", Body: "x", CreatedAt: at})
+	}
+	add(1, oldPR, "2026-01-01T10:00:00Z")
+	add(2, 88, "2026-01-02T10:00:00Z")
+	add(3, oldPR, "2026-01-03T10:00:00Z")
+	add(4, 88, "2026-01-04T10:00:00Z")
+
+	items, total, err := d.SearchComments(ctx, CommentFilter{})
+	if err != nil || total != 4 {
+		t.Fatalf("search: %v total=%d", err, total)
+	}
+	var got []string
+	for _, c := range items {
+		got = append(got, fmt.Sprintf("#%d/%d", c.PRNumber, c.GitHubID))
+	}
+	// Most recently updated PR first; chronological inside each PR.
+	if want := "#8/2 #8/4 #7/1 #7/3"; strings.Join(got, " ") != want {
+		t.Fatalf("order = %v, want %s", got, want)
 	}
 }

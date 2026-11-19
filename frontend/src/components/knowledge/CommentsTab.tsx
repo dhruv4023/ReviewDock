@@ -1,11 +1,38 @@
-import React, { useCallback, useEffect, useState } from 'react';
-import { ExternalLink, Search, Plus } from 'lucide-react';
+import React, { useCallback, useEffect, useMemo, useState } from 'react';
+import { ChevronDown, ChevronRight, ExternalLink, Search, Plus } from 'lucide-react';
 import {
   EMPTY_COMMENT_FILTER, KBComment, KBCommentFilter, KBRepository, kbApi, useKnowledgeStore,
 } from '../../stores/knowledgeStore';
 import { Badge, Btn, DiffHunk, Empty, Field, Select, inputCls, openURL, shortDate } from './ui';
 
 const KINDS = ['requirement', 'suggestion', 'question', 'superseded', 'unclear', 'noise', 'self', 'bot'];
+
+interface PRGroup {
+  key: string;
+  repo: string;
+  number: number;
+  title: string;
+  url: string;
+  comments: KBComment[];
+}
+
+// The backend returns comments ordered by PR (most recently updated first), so
+// grouping consecutive items keeps each PR together, also after "Load more".
+function groupByPR(items: KBComment[]): PRGroup[] {
+  const groups: PRGroup[] = [];
+  const index = new Map<string, PRGroup>();
+  for (const c of items) {
+    const key = `${c.repo}#${c.pr_number}`;
+    let g = index.get(key);
+    if (!g) {
+      g = { key, repo: c.repo, number: c.pr_number, title: c.pr_title, url: c.pr_url, comments: [] };
+      index.set(key, g);
+      groups.push(g);
+    }
+    g.comments.push(c);
+  }
+  return groups;
+}
 
 export const CommentsTab: React.FC<{ onOpenRule: (id: number) => void }> = ({ onOpenRule }) => {
   const { categories, reviewers, version, bump, setError } = useKnowledgeStore();
@@ -16,6 +43,13 @@ export const CommentsTab: React.FC<{ onOpenRule: (id: number) => void }> = ({ on
   const [loading, setLoading] = useState(false);
   const [repos, setRepos] = useState<KBRepository[]>([]);
   const [selected, setSelected] = useState<KBComment | null>(null);
+  const [collapsed, setCollapsed] = useState<Set<string>>(new Set());
+  const groups = useMemo(() => groupByPR(items), [items]);
+  const toggle = (key: string) => setCollapsed(prev => {
+    const next = new Set(prev);
+    if (next.has(key)) next.delete(key); else next.add(key);
+    return next;
+  });
 
   const load = useCallback(async (f: KBCommentFilter, append = false) => {
     const api = kbApi();
@@ -66,35 +100,50 @@ export const CommentsTab: React.FC<{ onOpenRule: (id: number) => void }> = ({ on
           </Select>
           <input type="date" value={filter.since} onChange={e => update({ since: e.target.value })} className={inputCls} title="From" />
           <input type="date" value={filter.until} onChange={e => update({ until: e.target.value })} className={inputCls} title="Until" />
-          <span className="ml-auto text-[10px] text-zinc-500 tabular-nums">{total} comments</span>
+          <span className="ml-auto text-[10px] text-zinc-500 tabular-nums">{total} comments · {groups.length}{items.length < total ? '+' : ''} PRs</span>
         </form>
 
         <div className="flex-1 overflow-y-auto">
           {items.length === 0 && !loading ? (
             <Empty>No comments match. Sync repositories from the Sync tab first.</Empty>
           ) : (
-            items.map(c => (
-              <button
-                key={c.id}
-                onClick={() => setSelected(c)}
-                className={`w-full text-left px-3 py-2 border-b border-zinc-800/70 hover:bg-zinc-800/30 transition ${selected?.id === c.id ? 'bg-blue-950/20' : ''}`}
-              >
-                <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 mb-1">
-                  <span className="font-semibold text-gray-300">{c.author}</span>
-                  <span>on {c.repo}#{c.pr_number}</span>
-                  {c.path && <span className="font-mono truncate max-w-[260px]">{c.path}{c.line || c.original_line ? `:${c.line || c.original_line}` : ''}</span>}
-                  <span className="ml-auto whitespace-nowrap">{shortDate(c.created_at)}</span>
+            groups.map(g => {
+              const isCollapsed = collapsed.has(g.key);
+              return (
+                <div key={g.key}>
+                  <div className="sticky top-0 z-10 flex items-center gap-1.5 px-2 py-1.5 bg-[#161b22] border-b border-zinc-800">
+                    <button onClick={() => toggle(g.key)} className="flex items-center gap-1.5 min-w-0 flex-1 text-left" title={isCollapsed ? 'Expand' : 'Collapse'}>
+                      {isCollapsed ? <ChevronRight size={12} className="text-zinc-500 shrink-0" /> : <ChevronDown size={12} className="text-zinc-500 shrink-0" />}
+                      <span className="font-mono text-[11px] text-blue-400 shrink-0">{g.repo}#{g.number}</span>
+                      <span className="text-[11px] text-gray-300 truncate">{g.title}</span>
+                    </button>
+                    <span className="text-[10px] text-zinc-500 tabular-nums shrink-0">{g.comments.length}</span>
+                    <button onClick={() => openURL(g.url)} className="text-zinc-500 hover:text-gray-200 shrink-0" title="Open PR on GitHub"><ExternalLink size={11} /></button>
+                  </div>
+                  {!isCollapsed && g.comments.map(c => (
+                    <button
+                      key={c.id}
+                      onClick={() => setSelected(c)}
+                      className={`w-full text-left pl-7 pr-3 py-2 border-b border-zinc-800/70 hover:bg-zinc-800/30 transition ${selected?.id === c.id ? 'bg-blue-950/20' : ''}`}
+                    >
+                      <div className="flex items-center gap-1.5 text-[10px] text-zinc-500 mb-1">
+                        <span className="font-semibold text-gray-300">{c.author}</span>
+                        {c.path && <span className="font-mono truncate max-w-[260px]">{c.path}{c.line || c.original_line ? `:${c.line || c.original_line}` : ''}</span>}
+                        <span className="ml-auto whitespace-nowrap">{shortDate(c.created_at)}</span>
+                      </div>
+                      <div className="text-[11px] text-gray-200 line-clamp-2 leading-snug">{c.body || <i className="text-zinc-500">(no text — {c.review_state || c.source})</i>}</div>
+                      <div className="flex items-center gap-1 mt-1">
+                        {c.kind && <Badge value={c.kind} />}
+                        {c.category && c.kind !== 'self' && c.kind !== 'bot' && <Badge value={c.category} />}
+                        {c.code_changed === 'yes' && <Badge value="code changed" title="The commented lines changed afterwards" />}
+                        {c.is_resolved && <Badge value="resolved" />}
+                        {(c.rule_ids ?? []).length > 0 && <span className="text-[10px] text-blue-400">{(c.rule_ids ?? []).length} rule(s)</span>}
+                      </div>
+                    </button>
+                  ))}
                 </div>
-                <div className="text-[11px] text-gray-200 line-clamp-2 leading-snug">{c.body || <i className="text-zinc-500">(no text — {c.review_state || c.source})</i>}</div>
-                <div className="flex items-center gap-1 mt-1">
-                  {c.kind && <Badge value={c.kind} />}
-                  {c.category && c.kind !== 'self' && c.kind !== 'bot' && <Badge value={c.category} />}
-                  {c.code_changed === 'yes' && <Badge value="code changed" title="The commented lines changed afterwards" />}
-                  {c.is_resolved && <Badge value="resolved" />}
-                  {(c.rule_ids ?? []).length > 0 && <span className="text-[10px] text-blue-400">{(c.rule_ids ?? []).length} rule(s)</span>}
-                </div>
-              </button>
-            ))
+              );
+            })
           )}
           {items.length < total && (
             <div className="p-2 text-center">
