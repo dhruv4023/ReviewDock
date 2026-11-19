@@ -5,14 +5,19 @@ import (
 	"database/sql"
 	"encoding/json"
 	"errors"
+	"sort"
+	"strings"
+	"time"
 )
 
 // Settings configures the knowledge pipeline. Stored as a single JSON
 // document under kb_settings.key = 'settings' so new fields get defaults.
 type Settings struct {
-	// In-app scheduler. The headless CLI ignores these (system cron decides).
-	ScheduleEnabled bool `json:"schedule_enabled"`
-	IntervalMinutes int  `json:"interval_minutes"`
+	// In-app scheduler, same model as the scheduled rebase: run at the given
+	// wall-clock times ("09:00 AM") while review-dock is open. Nothing runs
+	// when the app is closed.
+	ScheduleEnabled bool     `json:"schedule_enabled"`
+	ScheduleTimes   []string `json:"schedule_times"`
 
 	// Skill generation / publishing.
 	SkillName      string   `json:"skill_name"`
@@ -30,8 +35,8 @@ type Settings struct {
 // DefaultSettings returns the defaults used when nothing is stored.
 func DefaultSettings() Settings {
 	return Settings{
-		ScheduleEnabled: true,
-		IntervalMinutes: 360,
+		ScheduleEnabled: false,
+		ScheduleTimes:   []string{},
 		SkillName:       "odoo-pr-review",
 		PublishTargets:  []string{"~/.claude/skills"},
 		AutoPublish:     true,
@@ -49,9 +54,16 @@ func DefaultSettings() Settings {
 // Normalize clamps values to sane ranges.
 func (s *Settings) Normalize() {
 	def := DefaultSettings()
-	if s.IntervalMinutes < 15 {
-		s.IntervalMinutes = 15
+	times := make([]string, 0, len(s.ScheduleTimes))
+	seen := map[string]bool{}
+	for _, t := range s.ScheduleTimes {
+		if n, ok := NormalizeTime(t); ok && !seen[n] {
+			seen[n] = true
+			times = append(times, n)
+		}
 	}
+	sort.Slice(times, func(i, j int) bool { return clockMinutes(times[i]) < clockMinutes(times[j]) })
+	s.ScheduleTimes = times
 	if s.SkillName == "" {
 		s.SkillName = def.SkillName
 	}
@@ -94,4 +106,21 @@ func (d *DB) SaveSettings(ctx context.Context, s Settings) error {
 	_, err = d.ExecContext(ctx, `INSERT INTO kb_settings(key, value) VALUES('settings', ?)
 		ON CONFLICT(key) DO UPDATE SET value = excluded.value`, string(b))
 	return err
+}
+
+// NormalizeTime parses a schedule time ("9:00 am", "09:00 AM", "21:00") and
+// returns it in the app's canonical "03:04 PM" form.
+func NormalizeTime(t string) (string, bool) {
+	t = strings.ToUpper(strings.TrimSpace(t))
+	for _, layout := range []string{"03:04 PM", "3:04 PM", "15:04"} {
+		if v, err := time.Parse(layout, t); err == nil {
+			return v.Format("03:04 PM"), true
+		}
+	}
+	return "", false
+}
+
+func clockMinutes(t string) int {
+	v, _ := time.Parse("03:04 PM", t)
+	return v.Hour()*60 + v.Minute()
 }

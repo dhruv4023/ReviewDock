@@ -22,7 +22,8 @@ export interface KBRepository {
 
 export interface KBSettings {
   schedule_enabled: boolean;
-  interval_minutes: number;
+  schedule_times: string[]; // "09:00 PM", same format as the scheduled rebase
+
   skill_name: string;
   publish_targets: string[];
   auto_publish: boolean;

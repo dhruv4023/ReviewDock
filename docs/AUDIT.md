@@ -10,8 +10,8 @@ therefore treats "integration" as an **internal boundary** between:
   diff/prompt helpers, dashboard). It keeps all of its current responsibilities.
 * **Knowledge subsystem** (new, `backend/knowledge/...`) — review-comment
   collection, deterministic rule extraction, and skill generation and publishing.
-  It runs inside the desktop app *and* headless from a CLI (`cmd/review-dock-kb`)
-  for system cron.
+  It runs inside the desktop app only. It has no separate binary and no system
+  cron.
 
 They share one SQLite database and one lock file. They never duplicate business
 logic.
@@ -56,8 +56,9 @@ logic.
    for the knowledge data. The existing small JSON settings stay as they are,
    because migrating them brings no benefit.
 7. **The scheduler only exists while the GUI is open**, and it's hard-wired to
-   rebasing. → The knowledge sync gets its own interval scheduler in-app, plus a
-   headless CLI for system cron/systemd. Both share a cross-process lock.
+   rebasing. → The knowledge sync gets its own wall-clock schedule, checked by the same
+   in-app ticker as the scheduled rebase and with the same model: it runs only
+   while the app is open.
 8. **`architecture.md` is an outdated blueprint.** It describes an OAuth device
    flow, `sessions.json`, and go-github, none of which exist. The actual
    implementation uses `gh` CLI. → A note was added; new docs live in `docs/`.
@@ -72,13 +73,12 @@ logic.
 
 | Need | Implementation |
 |---|---|
-| Durable review DB | `backend/knowledge/db`: SQLite (pure-Go `modernc.org/sqlite`, no CGO, so the CLI cross-compiles), embedded versioned migrations, WAL, FKs |
+| Durable review DB | `backend/knowledge/db`: SQLite (pure-Go `modernc.org/sqlite`, no CGO), embedded versioned migrations, WAL, FKs |
 | GitHub collection | `backend/knowledge/ghsync`: `gh api` wrapper with manual pagination, rate-limit preflight, exponential backoff, and token redaction. Covers inline comments, issue comments, reviews, and review threads (GraphQL: resolved/outdated) |
 | Incremental + resumable | Per-repo `checkpoint_updated_at`. PRs are processed in ascending `updated_at`, one transaction per PR, and the checkpoint advances after each commit |
 | Deterministic extraction | `backend/knowledge/extract`: normalisation, feedback-kind classifier, path+keyword categoriser, signal taxonomy with rule templates, Jaccard clustering for uncategorised feedback, thread-based supersession, deterministic statistics |
 | Skill generator | `backend/knowledge/skillgen`: pure function from snapshot to files (`text/template`), validator, content hash, atomic versioned publish, and a `current` symlink |
 | Orchestration | `backend/knowledge/pipeline`: lock → sync → extract → build → publish, with every run recorded |
-| Headless/cron | `cmd/review-dock-kb` (`sync`, `extract`, `build`, `run`, `status`, `repos`, `rules`, `skill`) |
 | UI | New **Knowledge** tab (Overview, Comments, Rules, Sync, Skill) in the existing style |
 | Integration | The rebase app's "Copy AI Review Prompt" gains a `{{REVIEW_RULES}}` placeholder fed from the published skill. Agents read `~/.claude/skills/odoo-pr-review` (symlink to the current version) |
 
@@ -91,7 +91,6 @@ logic.
    │               │                     backend/knowledge/pipeline ◄── ticker   │
    │               └───────────────────────────────────┼─────────────────────────┘
    │                                                   │
-   │   cmd/review-dock-kb (cron) ──────────────────────┤  (same packages, flock)
    │                                                   ▼
    └──── ghsync ──► db (SQLite: knowledge.db) ◄── extract   (NO network)
                                    │
@@ -117,6 +116,8 @@ The **network boundary** is enforced by package imports. Only `ghsync` may run
   compatible with the existing `go 1.22` directive, which is unchanged.
 * **First sync = full historical import** per repository (resumable). Afterwards
   each sync is incremental.
+* **Nothing is scheduled by default.** Add sync times on the Sync tab, as you
+  would for the scheduled rebase. Nothing runs while the app is closed.
 * **Nothing is auto-approved.** The skill includes only approved rules, so the
   first published skill has instructions and checklists but no historical rules
   until you approve some. The opt-in setting `auto_approve_min_prs` changes this.

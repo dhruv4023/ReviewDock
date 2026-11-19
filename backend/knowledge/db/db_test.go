@@ -4,6 +4,7 @@ import (
 	"context"
 	"database/sql"
 	"path/filepath"
+	"strings"
 	"testing"
 )
 
@@ -164,13 +165,16 @@ func TestSettingsDefaultsAndRoundTrip(t *testing.T) {
 	if err != nil || s.SkillName != "odoo-pr-review" || s.IncludePending || s.AutoApproveMinPRs != 0 {
 		t.Fatalf("defaults wrong: %+v %v", s, err)
 	}
-	s.IntervalMinutes = 1 // clamped to 15
+	if s.ScheduleEnabled || len(s.ScheduleTimes) != 0 {
+		t.Fatalf("schedule must be off by default: %+v", s)
+	}
+	s.ScheduleTimes = []string{"9:00 pm", "bogus", "08:30 AM", "21:00"}
 	s.PublishTargets = []string{"/tmp/x"}
 	if err := d.SaveSettings(ctx, s); err != nil {
 		t.Fatal(err)
 	}
 	s2, _ := d.LoadSettings(ctx)
-	if s2.IntervalMinutes != 15 || s2.PublishTargets[0] != "/tmp/x" {
+	if strings.Join(s2.ScheduleTimes, ",") != "08:30 AM,09:00 PM" || s2.PublishTargets[0] != "/tmp/x" {
 		t.Fatalf("round trip: %+v", s2)
 	}
 }

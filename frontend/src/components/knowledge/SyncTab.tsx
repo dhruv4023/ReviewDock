@@ -3,6 +3,14 @@ import { Play, RotateCcw, Trash2, Plus, Save, RefreshCw } from 'lucide-react';
 import { KBRepository, KBSettings, KBSyncRun, kbApi, useKnowledgeStore } from '../../stores/knowledgeStore';
 import { Badge, Btn, Empty, Field, Panel, inputCls, relTime, shortDate } from './ui';
 
+// "21:05" (input[type=time]) → "09:05 PM" (format shared with the rebase schedule).
+function to12h(hhmm: string): string {
+  const [h, m] = hhmm.split(':').map(Number);
+  const period = h >= 12 ? 'PM' : 'AM';
+  const h12 = h % 12 === 0 ? 12 : h % 12;
+  return `${String(h12).padStart(2, '0')}:${String(m).padStart(2, '0')} ${period}`;
+}
+
 export function useKBSettings() {
   const { version, setError } = useKnowledgeStore();
   const [settings, setSettings] = useState<KBSettings | null>(null);
@@ -28,6 +36,7 @@ export const SyncTab: React.FC = () => {
   const [newRepo, setNewRepo] = useState('');
   const [newAuthor, setNewAuthor] = useState('@me');
   const [authors, setAuthors] = useState<Record<number, string>>({});
+  const [newTime, setNewTime] = useState('09:00');
   const { settings, setSettings, save, saved } = useKBSettings();
 
   const load = useCallback(async () => {
@@ -132,13 +141,26 @@ export const SyncTab: React.FC = () => {
       {settings && (
         <Panel title="Schedule & extraction" actions={<Btn variant="primary" onClick={() => save(settings)}><Save size={11} /> {saved ? 'Saved' : 'Save'}</Btn>}>
           <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-            <Field label="Automatic sync" hint="While review-dock is open. Use the CLI with cron for a headless schedule.">
+            <Field label="Scheduled sync" hint="Runs at these times only while review-dock is open, like the scheduled rebase. Nothing runs when the app is closed.">
               <label className="flex items-center gap-1.5 text-[11px] text-gray-200">
                 <input type="checkbox" checked={settings.schedule_enabled} onChange={e => setSettings({ ...settings, schedule_enabled: e.target.checked })} /> enabled
               </label>
             </Field>
-            <Field label="Every (minutes)" hint="Minimum 15.">
-              <input type="number" min={15} value={settings.interval_minutes} onChange={e => setSettings({ ...settings, interval_minutes: Number(e.target.value) })} className={inputCls} />
+            <Field label="Times" hint="Sync → extract → publish skill at each time.">
+              <div className="flex flex-wrap items-center gap-1">
+                {(settings.schedule_times ?? []).map(t => (
+                  <span key={t} className="flex items-center gap-1 px-1.5 py-0.5 bg-zinc-800 border border-zinc-700 rounded text-[11px] text-zinc-200">
+                    {t}
+                    <button type="button" title="Remove" className="text-zinc-500 hover:text-red-400"
+                      onClick={() => setSettings({ ...settings, schedule_times: settings.schedule_times.filter(x => x !== t) })}>✕</button>
+                  </span>
+                ))}
+                <input type="time" value={newTime} onChange={e => setNewTime(e.target.value)} className={`${inputCls} w-24`} />
+                <Btn disabled={!newTime} onClick={() => {
+                  const t = to12h(newTime);
+                  if (!settings.schedule_times.includes(t)) setSettings({ ...settings, schedule_times: [...settings.schedule_times, t] });
+                }}><Plus size={11} /> Add</Btn>
+              </div>
             </Field>
             <Field label="Ignored authors" hint="Bots and merge bots (comma separated). [bot] accounts are always ignored.">
               <input value={settings.ignored_authors.join(', ')} onChange={e => setSettings({ ...settings, ignored_authors: e.target.value.split(',').map(s => s.trim()).filter(Boolean) })} className={inputCls} />

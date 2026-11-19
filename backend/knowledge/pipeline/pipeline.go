@@ -648,48 +648,18 @@ func CheckZeroToken(last db.SkillBuild) ZeroTokenReport {
 // In-app scheduler
 // ---------------------------------------------------------------------------
 
-// Due reports whether a scheduled run should start now.
-func (p *Pipeline) Due(ctx context.Context, now time.Time) (bool, error) {
-	s, err := p.DB.LoadSettings(ctx)
-	if err != nil || !s.ScheduleEnabled {
-		return false, err
+// ScheduledAt reports whether now (to the minute) matches one of the
+// configured wall-clock times. The caller (the app's 55 s ticker, shared with
+// the scheduled rebase) guarantees at most one run per minute.
+func ScheduledAt(s db.Settings, now time.Time) bool {
+	if !s.ScheduleEnabled {
+		return false
 	}
-	last, err := p.DB.LastRunStart(ctx)
-	if err != nil {
-		return false, err
-	}
-	if last == "" {
-		return true, nil
-	}
-	t, err := time.Parse(time.RFC3339, last)
-	if err != nil {
-		return true, nil
-	}
-	return now.Sub(t) >= time.Duration(s.IntervalMinutes)*time.Minute, nil
-}
-
-// StartScheduler checks once a minute and runs the pipeline when due. Runs
-// are skipped (not queued) while another process holds the lock.
-func (p *Pipeline) StartScheduler(ctx context.Context, ready func() bool) {
-	go func() {
-		t := time.NewTicker(time.Minute)
-		defer t.Stop()
-		for {
-			select {
-			case <-ctx.Done():
-				return
-			case <-t.C:
-				due, err := p.Due(ctx, time.Now())
-				if err != nil || !due || p.Running() {
-					continue
-				}
-				if ready != nil && !ready() {
-					continue
-				}
-				if _, err := p.Run(ctx, Options{Trigger: "schedule"}); err != nil && !errors.Is(err, ErrBusy) {
-					p.logger().Error("scheduled knowledge run failed", "error", ghsync.Redact(err.Error()))
-				}
-			}
+	cur := now.Format("03:04 PM")
+	for _, t := range s.ScheduleTimes {
+		if n, ok := db.NormalizeTime(t); ok && n == cur {
+			return true
 		}
-	}()
+	}
+	return false
 }

@@ -444,10 +444,3 @@ func (d *DB) ListRuns(ctx context.Context, limit int) ([]SyncRun, error) {
 	}
 	return runs, nil
 }
-
-// LastRunStart returns the start time of the most recent scheduled/cli/manual run.
-func (d *DB) LastRunStart(ctx context.Context) (string, error) {
-	var s sql.NullString
-	err := d.QueryRowContext(ctx, `SELECT MAX(started_at) FROM sync_runs WHERE status != 'skipped'`).Scan(&s)
-	return s.String, err
-}

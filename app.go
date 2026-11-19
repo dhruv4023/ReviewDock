@@ -30,7 +30,9 @@ type App struct {
 	statsCache   *stats.CacheService
 	kb           *pipeline.Pipeline // review-knowledge system (nil if unavailable)
 	lastCronRun  time.Time
-	cronMutex    sync.Mutex
+	// lastKBCronRun is the scheduled knowledge-sync counterpart of lastCronRun.
+	lastKBCronRun time.Time
+	cronMutex     sync.Mutex
 }
 
 func NewApp() *App {
@@ -608,6 +610,7 @@ func (a *App) startCronScheduler() {
 			return
 		case <-ticker.C:
 			a.checkAndTriggerCron()
+			a.checkKnowledgeCron()
 		}
 	}
 }

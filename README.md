@@ -35,7 +35,7 @@ GitHub token.
 
 ## 1. Quick start
 
-**Prerequisites:** Go ≥ 1.22, Node ≥ 18, the Wails CLI v2
+**Prerequisites:** Go ≥ 1.25, Node ≥ 18, the Wails CLI v2
 (`go install github.com/wailsapp/wails/v2/cmd/wails@latest`), `git`, `gh`, and
 the `webkit2gtk-4.1` dev package.
 
@@ -43,17 +43,14 @@ the `webkit2gtk-4.1` dev package.
 gh auth login                           # the only credential store the app uses
 
 wails dev -tags webkit2_41              # dev mode, live reload
-./build.sh                              # release: ~/reviewdock + ~/review-dock-kb (CLI)
-
-# Headless knowledge pipeline (also run by the app's own scheduler):
-~/review-dock-kb repos import            # track the repos already configured in the app
-~/review-dock-kb run                     # sync → extract → build/publish skill
-~/review-dock-kb status
+./build.sh                              # release build → ~/reviewdock
 ```
 
-To run the knowledge sync without the GUI, install the timer in
-`deploy/systemd/` or the crontab in `deploy/cron/`. See
-[`docs/KNOWLEDGE_SYSTEM.md` §7](docs/KNOWLEDGE_SYSTEM.md).
+Everything is in this single app. In **Review Knowledge → Sync**, click
+**Sync now** for the first (full) import. Optionally add scheduled sync times
+there, the same way you would for the scheduled rebase. Like the rebase
+schedule, it runs only while the app is open; there is no background service
+or system cron.
 
 ---
 
@@ -71,7 +68,7 @@ The only place they meet is the `{{REVIEW_RULES}}` placeholder in the review
 prompt template. It is filled from the published skill.
 
 ```
-┌──────────────────────────── review-dock (Wails v2 binary) ────────────────────────────┐
+┌──────────────────────────── review-dock (Wails v2 binary) ─────────────────────────────┐
 │                                                                                        │
 │  React UI (WebView)                                                                    │
 │   PRs │ Dashboard │ Review Knowledge          ◄── events: terminal:log, rebase:status, │
@@ -80,12 +77,11 @@ prompt template. It is filled from the published skill.
 │  app.go  (PR/rebase bindings)            app_knowledge.go  (KB* bindings)              │
 │   │  │  │  │                                     │                                     │
 │   │  │  │  └─ stats ─────┐                       ▼                                     │
-│   │  │  └──── queue ─► git ─► git CLI      knowledge/pipeline ◄── interval scheduler   │
-│   │  └─────── github ──┴─────► gh CLI ◄──── ghsync  │ extract │ skillgen              │
+│   │  │  └──── queue ─► git ─► git CLI      knowledge/pipeline ◄── 55 s tick (in-app)   │
+│   │  └─────── github ──┴─────► gh CLI ◄──── ghsync  │ extract │ skillgen               │
 │   └────────── storage (JSON)                    └────┴────┬────┘                       │
 │                                                       knowledge/db (SQLite)            │
 └────────────────────────────────────────────────────────────────────────────────────────┘
-                     cmd/review-dock-kb (headless CLI) ── same packages, same DB + flock
                                                     │
                        ~/.config/review-dock/knowledge/skill/current ◄── ~/.claude/skills/odoo-pr-review
 ```
@@ -107,8 +103,8 @@ prompt template. It is filled from the published skill.
 
 ```
 main.go                     Wails bootstrap (window, embedded frontend/dist, bindings)
-app.go                      App struct, lifecycle, PR/rebase/stats bindings, rebase scheduler
-app_knowledge.go            Review-knowledge bindings (KB*), knowledge lifecycle
+app.go                      App struct, lifecycle, PR/rebase/stats bindings, scheduler tick
+app_knowledge.go            Review-knowledge bindings (KB*), knowledge lifecycle + schedule check
 logger/                     logrus + lumberjack → ~/.config/review-dock/logs/review-dock.log
 
 backend/
@@ -123,11 +119,9 @@ backend/
     ghsync/                 GitHub collector: search, pagination, GraphQL threads, retry/rate limit
     extract/                Deterministic classifier, taxonomy, clustering, rule upsert
     skillgen/               Pure skill generator, validator, atomic versioned publisher (stdlib only)
-    pipeline/               Orchestration: lock → sync → extract → build, scheduler, network guard
+    pipeline/               Orchestration: lock → sync → extract → build, schedule match, network guard
     kbtest/                 Fake `gh` and Odoo-flavoured fixtures for tests
     zerotoken_test.go       Import-graph audit (no network/LLM in the build path)
-
-cmd/review-dock-kb/         Headless CLI (cron/systemd) over the same packages
 
 frontend/
   src/App.tsx               Shell: sidebar, main tabs, details panel, terminal
@@ -136,9 +130,8 @@ frontend/
   src/components/knowledge/ Overview, Comments, Rules, Sync, Skill tabs
   wailsjs/                  Generated binding stubs (`wails generate module`)
 
-deploy/                     systemd service+timer, crontab for review-dock-kb
 docs/                       AUDIT.md, KNOWLEDGE_SYSTEM.md
-build.sh                    Release build of the app and CLI
+build.sh                    Release build of the app
 ```
 
 ---
@@ -156,7 +149,7 @@ On `startup` it:
 2. opens the stats cache;
 3. starts the knowledge subsystem;
 4. creates the queue manager with the configured concurrency;
-5. starts the rebase scheduler;
+5. starts the scheduler tick (scheduled rebase and scheduled knowledge sync);
 6. checks the `git` version.
 
 If storage fails, the error is logged and the app keeps running with reduced
@@ -240,7 +233,8 @@ at most once per minute. On a match it:
 4. includes drafts only if `CronIncludeDrafts` is set;
 5. submits a batch with force-push enabled.
 
-This scheduler only runs while the app is open.
+The same tick also calls `checkKnowledgeCron` (§4.8). Both schedules run only
+while the app is open, and a missed time is not caught up later.
 
 ### 4.6 `stats`: review statistics
 
@@ -273,19 +267,24 @@ gh api ─► ghsync ─► db ─► extract ─► db(rules) ─► skillgen �
 | `ghsync` | Searches your PRs with `updated >= checkpoint` in ascending order, windowed past GitHub's 1000-result search cap. Fetches inline comments, issue comments and reviews (paginated), plus review threads over GraphQL (resolved/outdated). Each PR is saved in **one transaction together with its checkpoint**, so syncs resume. Edits become revisions; disappeared comments are soft-deleted. Also handles exponential backoff, rate-limit preflight and token redaction. |
 | `extract` | Pure `Analyze()`. Classifies each comment (requirement, suggestion, question, superseded, noise, unclear, self or bot) and matches a 49-signal taxonomy over 14 categories. Clusters uncategorised feedback that recurs across ≥2 PRs and detects threads where the reviewer conceded. `apply.go` upserts rules without overwriting manual edits, approvals, rejections, merges or evidence exclusions. |
 | `skillgen` | `Generate(snapshot)` produces `SKILL.md`, `references/*.md`, `common-mistakes.md` and `metadata.json` with `text/template`. Sorting is deterministic, and the content hash is computed before the version is stamped in. `Validate()` runs before every publish. `Publish()` writes to a temp dir, renames it to `versions/<hash>`, atomically swaps the `current` symlink and prunes old versions. Identical output creates no new version. |
-| `pipeline` | `Run()` takes the lock, recovers interrupted runs, then syncs, extracts and builds, recording every run. It also provides `Preview()`/diff, the interval scheduler and `WithNetworkGuard` (any HTTP during a build fails and is counted). |
+| `pipeline` | `Run()` takes the lock, recovers interrupted runs, then syncs, extracts and builds, recording every run. It also provides `Preview()`/diff, `ScheduledAt()` (schedule-time matching) and `WithNetworkGuard` (any HTTP during a build fails and is counted). |
 
 Only rules you have **approved** that have at least one evidence link go into
 the skill. Nothing is approved automatically unless you turn on
 `auto_approve_min_prs`.
 
-### 4.9 `cmd/review-dock-kb`: headless CLI
+**Scheduled knowledge sync.** This follows the same model as the scheduled
+rebase (§4.5). The knowledge settings hold `schedule_enabled` and
+`schedule_times` (for example `["09:00 AM", "02:00 PM"]`); the schedule is off
+by default.
 
-The CLI uses the same packages, database and lock as the app. Its commands
-are `run`, `sync`, `extract`, `build [--dry-run]`, `preview`, `status`,
-`repos …`, `rules …`, `skill path|version|verify` and `zero-token`. Exit codes
-are 0 (ok), 1 (error) and 3 (another run holds the lock; systemd treats this
-as success).
+On every 55 s tick, `checkKnowledgeCron` checks `pipeline.ScheduledAt(settings,
+now)`. On a match, at most once per minute, it starts the same run as
+**Sync now** (`KBRunSync(nil, "schedule")`). That run requires `gh` to be logged
+in and is skipped if a run is already in progress.
+
+Nothing runs while the app is closed. There is no separate binary, cron or
+systemd unit.
 
 ---
 
@@ -339,8 +338,8 @@ job. Progress arrives as `rebase:status` and `terminal:log` events, and
 2. It fills the placeholders.
 3. It copies the result to the clipboard.
 
-**Knowledge run.** A run is started by the app scheduler (every 6 h by
-default), `KBRunSync`, or `review-dock-kb run`.
+**Knowledge run.** A run is started by **Sync now** (`KBRunSync`) or at a
+scheduled time while the app is open.
 1. Take the lock.
 2. Sync the GitHub data for each enabled repository.
 3. Extract rules from the comments.
@@ -382,15 +381,20 @@ migration that has already shipped.
 | Rebase semaphore (`queue`) | Global rebase parallelism |
 | Branch-group coordination (`queue`) | All-or-nothing push for PRs on the same branch |
 | `flock` + RWMutex (`storage`) | JSON files across processes |
-| `flock` on `knowledge.lock` + mutex (`pipeline`) | One knowledge run across the app and the CLI |
+| `flock` on `knowledge.lock` + mutex (`pipeline`) | One knowledge run at a time, even with two app instances |
 | SQLite WAL + per-PR transactions | Concurrent readers during sync, crash-safe checkpoints |
 
-There are two independent schedulers:
+One in-app ticker (55 s) drives two independent schedules, and both work the
+same way:
 
-* **Rebase scheduler.** Runs in the app at wall-clock times from settings.
-* **Knowledge scheduler.** Runs in the app every *N* minutes, and/or headless
-  through the systemd timer or cron. It skips a run if one already holds the
-  lock.
+* each runs at configured wall-clock times, at most once per minute;
+* each runs only while the app is open;
+* neither has a background service or system cron.
+
+| Schedule | Settings | Action |
+|---|---|---|
+| **Scheduled rebase** | `settings.json` → `cron_enabled`, `cron_times` | Rebase and force-push branches with a PR more than 100 commits ahead |
+| **Scheduled knowledge sync** | knowledge settings → `schedule_enabled`, `schedule_times` | Sync → extract → build → publish skill. Skipped if a run is in progress |
 
 ---
 
@@ -404,8 +408,8 @@ There are two independent schedulers:
 * **Network boundary.** Only `github`, `stats` and `ghsync` start `gh`. `db`
   and `extract` have no direct network or exec imports. `skillgen` imports only
   the standard library, and no HTTP, TLS or RPC client is reachable from it.
-  `backend/knowledge/zerotoken_test.go` enforces this boundary, and
-  `review-dock-kb zero-token` checks the built binary for AI SDK modules.
+  `backend/knowledge/zerotoken_test.go` enforces this boundary, and the Skill
+  tab checks the running binary for AI SDK modules.
 * **Filesystem safety.** Publishing never overwrites a real directory at the
   agent link. It warns instead.
 
@@ -426,9 +430,8 @@ go test -race -count=1 ./...
 | `knowledge/ghsync` | Pagination, incremental/resume, retries, rate limit, redaction (fake `gh`) |
 | `knowledge/extract` | Classifier, taxonomy, supersession, clustering, stability of manual edits |
 | `knowledge/skillgen` | Determinism, validation failures, atomic publish, no churn, pruning |
-| `knowledge/pipeline` | End-to-end run, locking, scheduler, **`TestZeroTokenSkillGeneration`** |
+| `knowledge/pipeline` | End-to-end run, locking, schedule-time matching, **`TestZeroTokenSkillGeneration`** |
 | `knowledge/zerotoken_test.go` | Static import-graph audit |
-| `cmd/review-dock-kb` | CLI commands and exit codes |
 
 The tests never touch the real GitHub, `~/.config` or `~/.claude`. They use
 `kbtest.FakeGH` and temporary directories.
@@ -438,8 +441,8 @@ The tests never touch the real GitHub, `~/.config` or `~/.claude`. They use
 ## 11. Further documentation
 
 * [`docs/KNOWLEDGE_SYSTEM.md`](docs/KNOWLEDGE_SYSTEM.md): knowledge system
-  schema, sync, extraction rules, skill format, agent integration, operation,
-  and the CLI reference.
+  schema, sync, extraction rules, skill format, agent integration, operation
+  and settings.
 * [`docs/AUDIT.md`](docs/AUDIT.md): technical audit (2026-11), problems found
   and what changed.
 * [`architecture.md`](architecture.md): the original design blueprint, kept

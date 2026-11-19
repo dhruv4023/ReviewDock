@@ -1,6 +1,0 @@
-# review-dock knowledge sync every 6 hours (install with: crontab -e).
-# gh must be logged in for this user (gh auth login) or GH_TOKEN must be set.
-# Output goes to ~/.config/review-dock/logs/knowledge.log (structured JSON).
-# Overlapping runs are safe: a second run exits with code 3 without doing anything.
-PATH=/usr/local/bin:/usr/bin:/bin
-17 */6 * * * $HOME/review-dock-kb run >/dev/null 2>&1

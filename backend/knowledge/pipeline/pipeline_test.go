@@ -466,28 +466,23 @@ func TestBuildFailureKeepsPreviousSkill(t *testing.T) {
 	}
 }
 
-func TestSchedulerDue(t *testing.T) {
-	p, _, _ := newPipeline(t)
-	ctx := context.Background()
-	now := time.Now().UTC()
-	if due, _ := p.Due(ctx, now); !due {
-		t.Fatal("first run should be due")
+func TestScheduledAt(t *testing.T) {
+	s := db.DefaultSettings()
+	at := time.Date(2026, 11, 19, 21, 0, 30, 0, time.Local)
+	s.ScheduleTimes = []string{"09:00 PM"}
+	if ScheduledAt(s, at) {
+		t.Fatal("must not run while the schedule is disabled")
 	}
-	p.DB.Now = func() time.Time { return now }
-	if _, err := p.Run(ctx, Options{Trigger: "schedule", NoBuild: true}); err != nil {
-		t.Fatal(err)
+	s.ScheduleEnabled = true
+	if !ScheduledAt(s, at) {
+		t.Fatal("09:00 PM should match 21:00")
 	}
-	if due, _ := p.Due(ctx, now.Add(time.Minute)); due {
-		t.Fatal("due right after a run")
+	if ScheduledAt(s, at.Add(time.Minute)) || ScheduledAt(s, at.Add(-12*time.Hour)) {
+		t.Fatal("matched a different minute / AM instead of PM")
 	}
-	if due, _ := p.Due(ctx, now.Add(361*time.Minute)); !due {
-		t.Fatal("not due after the interval")
-	}
-	s, _ := p.DB.LoadSettings(ctx)
-	s.ScheduleEnabled = false
-	p.DB.SaveSettings(ctx, s)
-	if due, _ := p.Due(ctx, now.Add(24*time.Hour)); due {
-		t.Fatal("due while disabled")
+	s.ScheduleTimes = []string{"9:00 pm"} // unnormalized input still matches
+	if !ScheduledAt(s, at) {
+		t.Fatal("unnormalized time not matched")
 	}
 }
 

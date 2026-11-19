@@ -1,8 +1,8 @@
 package main
 
-// Wails bindings for the review-knowledge system. The desktop app is a thin
-// client here: all logic lives in backend/knowledge/*, shared with the
-// headless review-dock-kb CLI (same database, same lock).
+// Wails bindings for the review-knowledge system. The app is a thin client
+// here: all logic lives in backend/knowledge/*. Syncs run only while the app
+// is open (manually or at the scheduled times, like the scheduled rebase).
 
 import (
 	"encoding/json"
@@ -12,6 +12,7 @@ import (
 	"path/filepath"
 	"sort"
 	"strings"
+	"time"
 
 	wails "github.com/wailsapp/wails/v2/pkg/runtime"
 
@@ -23,8 +24,8 @@ import (
 	"review-dock/logger"
 )
 
-// startKnowledge opens the knowledge DB, registers tracked repositories and
-// starts the interval scheduler. Failures are logged; the rest of the app
+// startKnowledge opens the knowledge DB and registers tracked repositories.
+// Scheduling is done by checkKnowledgeCron. Failures are logged; the rest of the app
 // keeps working without the knowledge features.
 func (a *App) startKnowledge() {
 	if a.storage == nil {
@@ -49,10 +50,34 @@ func (a *App) startKnowledge() {
 	}
 	a.kb = kb
 	a.syncTrackedRepos()
-	kb.StartScheduler(a.ctx, func() bool {
-		s, err := github.GetSession(a.ctx)
-		return err == nil && s != nil
-	})
+}
+
+// checkKnowledgeCron is called from the same 55 s ticker as the scheduled
+// rebase (startCronScheduler). Like the rebase it only fires at the configured
+// wall-clock times, at most once per minute, and only while the app is open.
+func (a *App) checkKnowledgeCron() {
+	if a.kb == nil {
+		return
+	}
+	now := time.Now()
+	a.cronMutex.Lock()
+	sameMinute := now.Truncate(time.Minute).Equal(a.lastKBCronRun.Truncate(time.Minute))
+	a.cronMutex.Unlock()
+	if sameMinute || a.kb.Running() {
+		return
+	}
+	s, err := a.kb.DB.LoadSettings(a.ctx)
+	if err != nil || !pipeline.ScheduledAt(s, now) {
+		return
+	}
+	a.cronMutex.Lock()
+	a.lastKBCronRun = now
+	a.cronMutex.Unlock()
+
+	wails.EventsEmit(a.ctx, "terminal:log", "\u001b[35m[SCHEDULED] Scheduled knowledge sync triggered!\u001b[0m\r\n")
+	if err := a.KBRunSync(nil, "schedule"); err != nil {
+		wails.EventsEmit(a.ctx, "terminal:log", fmt.Sprintf("\u001b[33m[SCHEDULED] Knowledge sync skipped: %v\u001b[0m\r\n", err))
+	}
 }
 
 func (a *App) stopKnowledge() {

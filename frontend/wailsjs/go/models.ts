@@ -439,7 +439,7 @@ export namespace db {
 	}
 	export class Settings {
 	    schedule_enabled: boolean;
-	    interval_minutes: number;
+	    schedule_times: string[];
 	    skill_name: string;
 	    publish_targets: string[];
 	    auto_publish: boolean;
@@ -456,7 +456,7 @@ export namespace db {
 	    constructor(source: any = {}) {
 	        if ('string' === typeof source) source = JSON.parse(source);
 	        this.schedule_enabled = source["schedule_enabled"];
-	        this.interval_minutes = source["interval_minutes"];
+	        this.schedule_times = source["schedule_times"];
 	        this.skill_name = source["skill_name"];
 	        this.publish_targets = source["publish_targets"];
 	        this.auto_publish = source["auto_publish"];

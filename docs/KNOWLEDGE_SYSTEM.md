@@ -31,18 +31,18 @@ GitHub ──gh api──► ghsync ──► knowledge.db (SQLite) ──► ex
 | `backend/knowledge/ghsync` | `gh api` client: pagination, retries, rate limits, redaction; per-repository incremental sync | **yes, via `gh` only** |
 | `backend/knowledge/extract` | normalisation, feedback classification, taxonomy, clustering, statistics | none |
 | `backend/knowledge/skillgen` | `text/template` rendering, validation, atomic versioned publishing | none (stdlib only) |
-| `backend/knowledge/pipeline` | lock → recover → sync → extract → build → publish; scheduler; HTTP guard | sync stage only |
-| `cmd/review-dock-kb` | headless CLI for cron/systemd | sync stage only |
+| `backend/knowledge/pipeline` | lock → recover → sync → extract → build → publish; schedule matching; HTTP guard | sync stage only |
 | `app_knowledge.go` | Wails bindings for the desktop UI (**Review Knowledge** tab) | sync stage only |
 
-The desktop app and the CLI share **one database** (`~/.config/review-dock/knowledge.db`) and **one lock**
-(`~/.config/review-dock/knowledge.lock`), so they never run a sync at the same time.
+Everything runs **inside the desktop app**. There is no separate CLI and no system cron or systemd job:
+when review-dock is closed, nothing syncs. The database is `~/.config/review-dock/knowledge.db`, and the
+lock `~/.config/review-dock/knowledge.lock` prevents two runs at once, even across two app windows.
 
 ### Integration boundary
 
 The existing PR and rebase features are unchanged. They share only two things with the knowledge system:
 
-1. **Repositories.** Every repository added in the sidebar is registered in the knowledge DB automatically. You can also add repositories without a local clone, either on the Sync tab or with `review-dock-kb repos add owner/name`.
+1. **Repositories.** Every repository added in the sidebar is registered in the knowledge DB automatically. You can also add repositories without a local clone, on the Sync tab.
 2. **The published skill.** The PR details panel's *Copy AI Review Prompt* supports a `{{REVIEW_RULES}}` placeholder, which is filled from the published skill's `metadata.json`. The prompt therefore uses the same artifact the agents read, not the database directly.
 
 ---
@@ -78,7 +78,7 @@ first time the database is opened. Nothing in the existing JSON files is migrate
 * **Edits and deletions.** A changed body keeps the old text in `comment_revisions`. Comments missing from a complete fetch of their PR get `deleted_at`, and are restored if they reappear.
 * **Did the feedback change code?** If the thread is outdated (the commented lines changed afterwards), `code_changed` is `yes`. If the PR was merged and the line is still current, it is `no`. Otherwise it is `unknown`.
 * **Rate limits.** Before each search page and each PR the client checks `/rate_limit`, which costs no quota. When the core quota drops below 50 the run stops with `rate_limited`, keeps its checkpoint, and marks the remaining repositories as `rate_limited`. Transient failures (5xx, 429, secondary limits, timeouts, connection errors) are retried with exponential backoff (2s, 4s, 8s, 16s, 32s, capped at 60s). Permanent errors such as 404 or bad credentials fail fast.
-* **Concurrency.** An in-process mutex plus a `flock` on `knowledge.lock` let only one run happen at a time. A second attempt returns `ErrBusy`, and the CLI exits with code 3.
+* **Concurrency.** An in-process mutex plus a `flock` on `knowledge.lock` let only one run happen at a time. A second attempt returns `ErrBusy` and is skipped.
 * **Crash recovery.** Runs left in `running` by a dead process are marked `interrupted` the next time the lock is acquired.
 
 ---
@@ -134,79 +134,54 @@ Every publish target `<dir>` (default `~/.claude/skills`) gets a symlink
 `<dir>/odoo-pr-review → ~/.config/review-dock/knowledge/skill/current`.
 
 * **Claude Code** discovers `~/.claude/skills/odoo-pr-review/SKILL.md` automatically, and always reads the latest valid version because the link follows `current`. Nobody has to copy files.
-* **Other agents.** Point them at the same directory, or at `review-dock-kb skill path`.
-* **Checking the version.** Read `metadata.json` (`version`, `content_hash`), or run `review-dock-kb skill version`. `review-dock-kb skill verify` checks that the published skill is byte-identical to what the database renders now.
+* **Other agents.** Point them at the same directory. The Skill tab shows the path.
+* **Checking the version.** Read `metadata.json` (`version`, `content_hash`), or open the Skill tab. Its preview shows whether the published skill differs from what the database renders now.
 * A real directory that already exists at a target path is **never overwritten**. The publish reports a warning instead.
 
 ---
 
 ## 7. Operation
 
-### Build and install
+### Build
 
 ```bash
-./build.sh            # desktop app → ~/reviewdock, CLI → ~/review-dock-kb
-# or only the CLI:
-go build -o ~/review-dock-kb ./cmd/review-dock-kb
+./build.sh            # desktop app → ~/reviewdock (the knowledge system is part of it)
 ```
 
 ### First run
 
-```bash
-gh auth login                       # once, if not logged in
-~/review-dock-kb repos import       # register repositories already tracked by the desktop app
-~/review-dock-kb repos add odoo/odoo --author @me   # or add more (no local clone needed)
-~/review-dock-kb run                # full historical import → extract → build → publish
-~/review-dock-kb run --max-prs 200  # optional: split a very large import across several runs
-~/review-dock-kb rules list --min 2 # review the proposals
-~/review-dock-kb rules approve R-0003 R-0005
-~/review-dock-kb build              # publish the approved rules
-```
-
-Rules are easier to review in the desktop app: **Review Knowledge → Rules** (approve, reject, edit, merge, mark superseded, inspect evidence and code context).
+1. `gh auth login` (once, if not logged in).
+2. Start review-dock. Repositories from the sidebar are registered automatically. Add more, without a
+   local clone, on **Review Knowledge → Sync**.
+3. Click **Sync now**. The first sync imports the full history and is resumable. If you close the app
+   mid-import, the next sync continues from the last committed PR.
+4. Review the proposals in **Review Knowledge → Rules**: approve, reject, edit, merge, mark superseded,
+   or inspect evidence and code context.
+5. **Skill → Rebuild** publishes the approved rules. The next sync also does this automatically.
 
 ### Schedule
 
-* **In the app.** Enabled by default, every 6 hours, while the app is open and `gh` is logged in. Configure it in **Review Knowledge → Sync**.
-* **Headless, with a systemd user timer (recommended):**
-  ```bash
-  mkdir -p ~/.config/systemd/user
-  cp deploy/systemd/review-dock-kb.{service,timer} ~/.config/systemd/user/
-  systemctl --user daemon-reload
-  systemctl --user enable --now review-dock-kb.timer
-  systemctl --user list-timers review-dock-kb.timer
-  journalctl --user -u review-dock-kb.service
-  ```
-* **Headless, with cron:** add the line from `deploy/cron/review-dock-kb.crontab` with `crontab -e`.
+The knowledge sync schedule works **exactly like the scheduled rebase**:
 
-The app and cron/systemd can both be active. The shared lock prevents overlapping runs, and a run
-that finds the lock taken exits with code 3.
-
-### CLI reference
-
-```
-review-dock-kb [--data-dir DIR] [--json] <command>
-  run [--repo owner/name]... [--max-prs N] [--no-build]
-  sync [--repo …]          sync + extract, no build
-  extract | build [--dry-run] | preview | status
-  repos list|add|import|enable|disable|reset|remove
-  rules list [--status S] [--category C] [--min N] | approve|reject|supersede|reopen ID… | merge TARGET SRC…
-  skill path|version|verify
-  zero-token
-Exit codes: 0 ok · 1 error · 3 lock held by another sync
-```
+* Configure it in **Review Knowledge → Sync → Scheduled sync**. Add one or more wall-clock times
+  (for example `09:00 AM`, `02:00 PM`). It is off by default.
+* The app's existing 55-second scheduler tick checks both schedules, and a run starts at most once per
+  matching minute.
+* It runs **only while review-dock is open** and `gh` is logged in. A missed time is not caught up
+  later. If a run is already in progress, the scheduled one is skipped.
+* Each scheduled run does sync → extract → build → publish, and appears in the sync history with
+  trigger `schedule`.
 
 ### Logs and status
 
 * `~/.config/review-dock/logs/knowledge.log`: structured JSON (slog), rotated. Contains no tokens.
 * Desktop: **Review Knowledge → Overview / Sync / Skill**, plus `[KNOWLEDGE]` lines in the terminal panel.
-* `review-dock-kb status` or `review-dock-kb --json status`.
 
 ### Settings (`kb_settings`, editable in the UI)
 
 | Setting | Default | Meaning |
 |---|---|---|
-| `schedule_enabled`, `interval_minutes` | true, 360 | in-app scheduler |
+| `schedule_enabled`, `schedule_times` | false, `[]` | scheduled sync at wall-clock times (`"09:00 PM"`), while the app is open |
 | `skill_name` | `odoo-pr-review` | skill directory and frontmatter name |
 | `publish_targets` | `["~/.claude/skills"]` | where agent-facing symlinks are maintained |
 | `auto_publish` | true | publish after each sync |
@@ -225,6 +200,6 @@ Exit codes: 0 ok · 1 error · 3 lock held by another sync
 | Static imports | `db`, `extract`, `skillgen` never import `net`, `net/http`, `crypto/tls`, `os/exec`. `skillgen` depends **only on the Go standard library**. No HTTP, TLS or RPC client package is reachable from any of them, even transitively. No AI/LLM/embedding module is in `go.mod`. | `backend/knowledge/zerotoken_test.go`. A deliberately injected `net/http` import makes it fail (checked). |
 | Runtime | Builds run inside `WithNetworkGuard`, which replaces `http.DefaultTransport` with a transport that refuses and counts requests. A build that attempts a request is aborted. The counts are stored in `skill_builds.network_calls` and `llm_calls`. | `TestNetworkGuardBlocksHTTP` |
 | End to end | `TestZeroTokenSkillGeneration` makes the GitHub runner fail and count, empties `PATH` (no `gh`, `curl` or `python`), points `HTTP(S)_PROXY`, `OPENAI_BASE_URL`, `ANTHROPIC_BASE_URL` and others at a trap server, and sets fake AI keys. It then runs extract, build and publish, and asserts: complete skill, 0 GitHub calls, 0 trapped HTTP requests, recorded network=0 and llm=0, byte-identical rebuild, no new version, preview diff empty, and no AI SDK linked. | `go test ./backend/knowledge/pipeline -run ZeroToken` |
-| Binary | `review-dock-kb zero-token` and the Skill tab inspect the running binary's linked modules for AI SDKs and show the last build's counters. | manual or CI |
+| Binary | The Skill tab inspects the running binary's linked modules for AI SDKs and shows the last build's counters. | manual |
 
 Run the complete suite with `go test ./...` (it needs `frontend/dist` to exist for the root package: `cd frontend && npm ci && npm run build`).
